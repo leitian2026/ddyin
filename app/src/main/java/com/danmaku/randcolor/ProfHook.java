@@ -7,7 +7,7 @@ import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 
 /**
- * 个人主页默认停在「喜欢」（1.35.2：触发 + 一次主动切页 + 冷启动那 3 次恢复用「计数」改掉；没有定时器、没有延时消息）。
+ * 个人主页默认停在「喜欢」（1.35.3：触发 + 一次主动切页 + 冷启动那几次恢复用「计数」改掉，次数在设置页可调；没有定时器、没有延时消息）。
  *
  * 三件事：
  *  1. 触发 prof.enter = com.ss.android.ugc.aweme.main.MainPageFragment$2#onChanged(Object)：底部标签切换的观察者，参数是一个 Pair，toString 形如
@@ -15,7 +15,7 @@ import de.robv.android.xposed.XposedBridge;
  *  2. 动作：触发时对个人主页的分页控件调一次 setCurrentItem(99, false)；99 越界，ViewPager 自己收成最后一页（= 喜欢），不认标签、不扫视图树、不依赖标签个数。
  *     分页控件从哪来：prof.pager 挂 ViewPager#setCurrentItem 两个重载，认出 this 是 ProfileViewPager 就记一个弱引用（整个进程只建一次，只在换对象时才分配）。
  *     触发时没有记下的对象 = 什么都不做。
- *  3. 冷启动计数：进程里**第一次**触发（= 冷启动后第一次点「我」）时把 remaining 设成 COLD_RESTORES（3）；之后 ProfileViewPager 每收到一次 setCurrentItem(0)
+ *  3. 冷启动计数：进程里**第一次**触发（= 冷启动后第一次点「我」）时把 remaining 设成设置里的次数 cfg.profRestores（默认 3，0～10，0 = 不处理）；之后 ProfileViewPager 每收到一次 setCurrentItem(0)
  *     （抖音自己恢复标签），参数改成 99 并 remaining 减一，减到 0 停。切到首页（HOME）时 remaining 清零。第二次起的触发不再计数（热启动只有 1 次恢复，读的是「记住的标签」，不会盖掉）。
  *     没有定时器、不看时间，只数次数，和手机快慢无关。
  *
@@ -25,16 +25,16 @@ import de.robv.android.xposed.XposedBridge;
  *    点「我」两次各调一次 (USER, …)，点「首页」调 (HOME, …)。
  *  - 冷启动第一次进「我」，ProfileViewPager 上的 setCurrentItem(0) 共 4 次：19351ms（DmtTabLayout.onTabSelected，在触发之前，不算）、
  *    19827ms（X.18rI.run，触发后 +224ms）、19836ms（PandaProfileMyPager#LJJLJLI，+233ms）、约 20155ms（同 LJJLJLI，+552ms）；onChanged(USER) 在 19603ms。
- *    触发之后的 3 次就是 COLD_RESTORES = 3 的来源。setAdapter(ProfileViewPager) 在 19329ms，所以触发时分页控件已经建好、已被 prof.pager 记下。
+ *    触发之后的 3 次就是次数默认值 3 的来源。setAdapter(ProfileViewPager) 在 19329ms，所以触发时分页控件已经建好、已被 prof.pager 记下。
  *  - 第二次进「我」（任务 4）：onChanged(USER) 在 56995ms，抖音自己的 setCurrentItem(0) 只有 1 次，在 57463ms（+468ms）；上机确认第二次起生效。
  *  - ViewPager#setCurrentItem(int) / (int, boolean) 是 androidx 声明的（没混淆），ProfileViewPager 不覆写；类名 com.ss.android.ugc.aweme.profile.widgets.ProfileViewPager 没混淆。
  * 没有定时器、没有轮询、没有扫描；prof.enter 回调只在底部切页时才有（用户点一次一次），不是点击检测；prof.pager 回调里只比较引用 / 一个整数，计数期间才改参数。
  *
  * 局限（没编译、没上机）：
- *  - COLD_RESTORES = 3 只来自这一份冷启动追踪（一台手机、一个抖音版本 40.9.0）。抖音更新后次数变了：
+ *  - 默认次数 3 只来自这一份冷启动追踪（一台手机、一个抖音版本 40.9.0）；1.35.3 起次数在设置页里可调，抖音更新后或者你的手机上次数不是 3 时自己改：
  *      变多 → 多出来的 (0) 没被改，冷启动第一次又被盖回「作品」（症状同 1.35.0）；
  *      变少 → 剩下的次数会被你之后手点「作品」吃掉，那一下点了没反应（仍停在「喜欢」），再点一次才行；切到首页清零，所以最多影响当次进「我」。
- *    抖音更新后如果冷启动第一次又不生效，用 TextRec 数冷启动时 ProfileViewPager 上 (0) 的次数，改 COLD_RESTORES。
+ *    冷启动第一次又不生效 → 调大；冷启动后第一次手点「作品」没反应 → 调小；想数准就用 TextRec 数冷启动时 ProfileViewPager 上 (0) 的次数。
  *  - 计数只算 setCurrentItem(0)：抖音恢复如果换成别的页号，不会被数到（安静失效）。
  *  - 参数是 Pair 这一点来自 toString 的格式，没有看到类名；回调里用 toString().startsWith("(USER,") / ("(HOME,") 判断，格式变了就不触发（安静失效）。
  *    这个 toString 每次底部切页只做一次，不是热路径。
@@ -56,9 +56,6 @@ final class ProfHook {
 
     private static final XC_MethodHook PAGER_HOOK = new PagerHook();
     private static final XC_MethodHook ENTER_HOOK = new EnterHook();
-
-    /** 冷启动：触发之后抖音自己恢复标签的 setCurrentItem(0) 的次数（TextRec 40.9.0 数出来的，见头部注释）。 */
-    private static final int COLD_RESTORES = 3;
 
     private static volatile WeakReference<Object> pagerRef;
     /** 进程里还没有过第一次触发（只在主线程回调里读写）。 */
@@ -143,7 +140,7 @@ final class ProfHook {
                 if (!t.startsWith(USER_PREFIX)) return;                         // 不是切到「我」
                 if (cold) {                                                     // 进程里第一次：开始数抖音随后的恢复
                     cold = false;
-                    remaining = COLD_RESTORES;
+                    remaining = DanmakuHook.cfg.profRestores; // 设置页里的次数，默认 3（TextRec 40.9.0 数出来的，见头部注释）
                 }
                 switchToLast();
             } catch (Throwable ignored) {

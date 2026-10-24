@@ -3,10 +3,8 @@ package com.danmaku.randcolor;
 import android.os.SystemClock;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewGroup;
 
 import java.lang.reflect.Method;
-import java.util.ArrayList;
 
 import de.robv.android.xposed.XC_MethodHook;
 
@@ -19,11 +17,11 @@ import de.robv.android.xposed.XC_MethodHook;
  * 会把「前面的钩子到底有没有用」盖住，设置页里钩子状态再好看也不知道是不是真的在起作用。
  * 现在这条路径失效 = 双击恢复成点赞，一眼就能看出来。（LLLIILIL 的追踪证据：40.7.0 里一次双击 X.06y9.onTouch 只调它一次，红心和点赞都从它往下走。）
  *
- * 评论按钮的找法（1.33.1 起，不再按「评论N，按钮」这串描述文字找）：
- *  - 只在被双击的这一页里找：afterHookedMethod 里的 this 就是这一页的 MonitorScrollFrameLayout，往下按类名找 FeedCommentImageView，
- *    预加载的下一页有它自己的实例，不会混进来，所以不用比面积、不用 Activity 引用；
- *  - 点它的「父级」（comment_container）：点击监听挂在父级上，不在图片控件上；
- *  - 找不到（视频没有评论按钮 / 按钮不可见 / 父级没有点击监听 / 抖音改了类名）：放行，双击照常点赞（之前是照样拦住，双击没反应）。
+ * 评论按钮的找法（按 id 名直接取，不再遍历 View 树）：
+ *  - 在被双击的这一页里取 id 名 comment_container 的控件：afterHookedMethod 里的 this 就是这一页的 MonitorScrollFrameLayout，
+ *    pv.findViewById(getIdentifier("comment_container", "id", 包名))；预加载的下一页有它自己的实例，不在这一页的子树里，不会混进来；
+ *  - 点击监听就挂在 comment_container 上（TextRec：View#performClick 的 this = FeedDoctorFrameLayout#comment_container）；
+ *  - 找不到（id 解析不出 / 这一页没有 / 不可见 / 没有点击监听）：放行，双击照常点赞。
  * 依据（TextRec 40.9.0，textrec-tasks-20261024-085052、textrec-tasks-20261024-085634）：
  *  - 点评论图标那一下的控件链：MonitorScrollFrameLayout#w1m → … → FeedRightScaleView → HPFrameLayout#comment_layout → LinearLayout#e9v
  *    → FeedDoctorFrameLayout#comment_container → com.ss.android.ugc.aweme.feed.widget.right.FeedCommentImageView；
@@ -183,29 +181,20 @@ final class CommentHook {
 
     // ------------------------------------------------------------ 打开评论
 
+    /** 评论按钮的点击目标的资源 id 名（TextRec 里显示为 #comment_container）。 */
+    private static final String TARGET_ID = "comment_container";
+
     /**
-     * 被双击的这一页里的评论按钮的点击目标：page（MonitorScrollFrameLayout）的子树里第一个可见的 FeedCommentImageView 的父级。
-     * 找不到 / 按钮不可见 / 父级没有点击监听 → null（调用方放行双击）。只在双击时调用，不在每次触摸里跑。
+     * 被双击的这一页里的评论按钮的点击目标：page（MonitorScrollFrameLayout）的子树里 id 名为 comment_container 的控件。
+     * 找不到 / 不可见 / 没有点击监听 → null（调用方放行双击）。只在双击时调用，不在每次触摸里跑。
      */
     private static View commentTarget(Object page) {
-        if (!(page instanceof ViewGroup)) return null;
-        ArrayList<View> todo = new ArrayList<>();
-        todo.add((View) page);
-        while (!todo.isEmpty()) {
-            View v = todo.remove(todo.size() - 1);
-            if (v.getVisibility() != View.VISIBLE) continue;
-            if (BTN_CLASS.equals(v.getClass().getName())) {
-                Object par = v.getParent();
-                if (!(par instanceof View)) return null;
-                View t = (View) par;
-                return t.hasOnClickListeners() ? t : null;
-            }
-            if (v instanceof ViewGroup) {
-                ViewGroup g = (ViewGroup) v;
-                for (int i = 0; i < g.getChildCount(); i++) todo.add(g.getChildAt(i));
-            }
-        }
-        return null;
+        if (!(page instanceof View)) return null;
+        View pv = (View) page;
+        int id = pv.getResources().getIdentifier(TARGET_ID, "id", pv.getContext().getPackageName());
+        if (id == 0) return null;
+        View t = pv.findViewById(id);
+        return t != null && t.isShown() && t.hasOnClickListeners() ? t : null;
     }
 
     /** 等当前这次点击 / 手势处理完再点，避免在别人的回调里重入。 */

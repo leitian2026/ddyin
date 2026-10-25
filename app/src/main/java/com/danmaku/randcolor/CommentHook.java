@@ -1,8 +1,11 @@
 package com.danmaku.randcolor;
 
+import android.graphics.Rect;
 import android.os.SystemClock;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
+import android.view.ViewGroup;
 
 import java.lang.reflect.Method;
 
@@ -12,6 +15,8 @@ import de.robv.android.xposed.XC_MethodHook;
  * 把"双击点赞"改成"打开评论"（开关 dtapToComment）。1.29.0 起不再有「右侧爱心按钮改评论」（FeedDiggPresenter#LJJJJJL）。
  * 双击视频：在 MonitorScrollFrameLayout.onInterceptTouchEvent 里识别双击并拦住（dtap.seen + dtap.cut），改为点一下评论按钮；
  *     再用 dtap.click 跳过随后的单击处理（不暂停）。三个钩子的类名、方法名都没混淆。
+ * 抖音的识别器漏判时（TextRec：两下点击 onInterceptTouchEvent 都收到了，但 onDoubleTap 没被调到）：dtap.cut 自己按「第一下抬起 → 第二下按下」认双击兜底，
+ *     间隔 400ms、落点在系统 DoubleTapSlop 以内，第一下必须是一次点按；点在小的可点控件（按钮）上不算。没有定时器、没有新钩子，只在已有的拦截钩子里存两个数、做一次比较。
  *
  * 1.26.4 起不再有混淆名的双击兜底（BaseListFragmentPanel#LLLIILIL）：它在前面这条路径失效时照样能打开评论，
  * 会把「前面的钩子到底有没有用」盖住，设置页里钩子状态再好看也不知道是不是真的在起作用。
@@ -78,6 +83,16 @@ final class CommentHook {
     /** 主线程上的触摸分发：正在 MonitorScrollFrameLayout.onInterceptTouchEvent 里 / 这一次里 onDoubleTap 被调到了。 */
     private static boolean inIntercept, dtapSeen;
 
+    /**
+     * 自己认双击（抖音的识别器漏判时兜底；做法和系统 GestureDetector 一样：第二下 DOWN 在第一下抬起后 DTAP_GAP_MS 内、落点在 DoubleTapSlop 以内）：
+     * 第一下要是「一次点按」（没超过长按时间、没移出 TouchSlop）才记下抬起的时刻和位置。
+     * 都在主线程的触摸分发里读写；抖音自己识别到的双击（dtapSeen）和这个走同一条后续路径，同一次双击只打开一次评论。
+     */
+    private static final long DTAP_GAP_MS = 400;
+    private static long downAt, upAt;
+    private static float downX, downY, upX, upY, tapX, tapY;
+    private static boolean selfDtap;
+
     private static final XC_MethodHook SEEN_HOOK = new DtapSeenHook();
     private static final XC_MethodHook CUT_HOOK = new DtapCutHook();
 
@@ -140,6 +155,49 @@ final class CommentHook {
                 if (!DanmakuHook.cfg.dtapToComment) return;
                 inIntercept = true;
                 dtapSeen = false;
+                selfDtap = false;
+                MotionEvent e = (MotionEvent) p.args[0];
+                switch (e.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN: {
+                        long t = e.getEventTime();
+                        float x = e.getX(), y = e.getY();
+                        if (upAt != 0 && t - upAt <= DTAP_GAP_MS && p.thisObject instanceof View) {
+                            float sl = ViewConfiguration.get(((View) p.thisObject).getContext()).getScaledDoubleTapSlop();
+                            float dx = x - upX, dy = y - upY;
+                            if (dx * dx + dy * dy <= sl * sl) {
+                                selfDtap = true;
+                                tapX = x;
+                                tapY = y;
+                            }
+                        }
+                        upAt = 0;
+                        downAt = selfDtap ? 0 : t; // 已经认成双击的这一下，后面的抬起不会再进拦截判断，不留半截记录
+                        downX = x;
+                        downY = y;
+                        break;
+                    }
+                    case MotionEvent.ACTION_UP: {
+                        if (downAt != 0 && p.thisObject instanceof View) {
+                            long t = e.getEventTime();
+                            float sl = ViewConfiguration.get(((View) p.thisObject).getContext()).getScaledTouchSlop();
+                            float dx = e.getX() - downX, dy = e.getY() - downY;
+                            if (t - downAt < ViewConfiguration.getLongPressTimeout() && dx * dx + dy * dy <= sl * sl) {
+                                upAt = t;
+                                upX = e.getX();
+                                upY = e.getY();
+                            }
+                        }
+                        downAt = 0;
+                        break;
+                    }
+                    case MotionEvent.ACTION_POINTER_DOWN:
+                    case MotionEvent.ACTION_CANCEL:
+                        upAt = 0;
+                        downAt = 0;
+                        break;
+                    default:
+                        break;
+                }
             } catch (Throwable ignored) {
             }
         }
@@ -149,9 +207,17 @@ final class CommentHook {
             try {
                 if (!inIntercept) return;
                 inIntercept = false;
-                if (!dtapSeen) return;
+                boolean self = selfDtap;
+                selfDtap = false;
+                if (!dtapSeen && !self) return;
+                boolean seen = dtapSeen;
                 dtapSeen = false;
                 if (p.hasThrowable()) return;
+                // 只有自己认出来的（抖音没识别到）才查落点：点在按钮之类小的可点控件上，是在连点按钮，不当双击
+                if (!seen && p.thisObject instanceof View) {
+                    View pv = (View) p.thisObject;
+                    if (onButton(pv, tapX, tapY, pv.getWidth() * pv.getHeight())) return;
+                }
                 View target = commentTarget(p.thisObject);
                 if (target == null) return; // 找不到评论按钮：放行，双击照常点赞（也不记 dtapAt，不跳过单击处理）
                 long now = SystemClock.uptimeMillis();
@@ -177,6 +243,23 @@ final class CommentHook {
             } catch (Throwable ignored) {
             }
         }
+    }
+
+    /** (x, y) 落在 v 的子树里某个「小的、有点击监听」的控件上（面积不到 v 的一半，大的是整页的点击层）。只在自己认出双击时调用一次。 */
+    private static boolean onButton(View v, float x, float y, int area) {
+        if (!(v instanceof ViewGroup)) return false;
+        ViewGroup g = (ViewGroup) v;
+        Rect r = new Rect();
+        for (int i = g.getChildCount() - 1; i >= 0; i--) {
+            View c = g.getChildAt(i);
+            if (c.getVisibility() != View.VISIBLE) continue;
+            c.getHitRect(r);
+            float cx = x + g.getScrollX() - r.left, cy = y + g.getScrollY() - r.top;
+            if (cx < 0 || cy < 0 || cx >= r.width() || cy >= r.height()) continue;
+            if (c.hasOnClickListeners() && (long) c.getWidth() * c.getHeight() * 2 < area) return true;
+            if (onButton(c, cx, cy, area)) return true;
+        }
+        return false;
     }
 
     // ------------------------------------------------------------ 打开评论

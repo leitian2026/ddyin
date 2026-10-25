@@ -38,15 +38,15 @@ final class DanmakuHook {
     private static boolean pendingFill;
 
     /**
-     * 颜色缓存（直接映射，256 项）：键 = 弹幕对象的 identityHashCode，值 = 算好的颜色。
+     * 颜色缓存（直接映射，1024 项）：键 = 弹幕对象的 identityHashCode，值 = 算好的颜色。
      * 一个 long：高 32 位是键，低 32 位是 0x01000000 | (mode << 25) | (最低亮度档 << 26) | RGB（0 表示空；亮度档 = textLift / 5，0～20，改了设置缓存自然失效）。
      * 弹幕滚动时每帧重绘同一条，命中缓存就不用再做哈希混合和 HSV→RGB。
      */
-    private static final long[] CACHE = new long[256];
+    private static final long[] CACHE = new long[1024];
     private static volatile Class<?> strokeCls, fillCls;
     /** 每个缓存槽里最近一次交给 Compose 的装箱结果（Long）和它对应的 ARGB：参数一样就直接复用，不再每次绘制 new 一个 Long。 */
-    private static final Object[] BOX = new Object[256];
-    private static final int[] BOXA = new int[256];
+    private static final Object[] BOX = new Object[1024];
+    private static final int[] BOXA = new int[1024];
     private static int lastSlot;
 
     static void init(XC_LoadPackage.LoadPackageParam lp) {
@@ -361,12 +361,12 @@ final class DanmakuHook {
     private static int colorOf(int key, Object mp, int mode, int lift) {
         if (lift < 0) lift = 0;
         else if (lift > 20) lift = 20;
-        int slot = (key ^ (key >>> 8)) & 255;
+        int slot = (key ^ (key >>> 8)) & 1023;
         lastSlot = slot;
         long e = CACHE[slot];
         int tag = 0x01000000 | (mode << 25) | (lift << 26);
         if ((int) (e >>> 32) == key && ((int) e & 0xFF000000) == tag) return (int) e & 0xFFFFFF;
-        int rgb = pick(textKey(mp, key), mode, lift);
+        int rgb = pick(seq(textKey(mp, key)), mode, lift);
         CACHE[slot] = ((long) key << 32) | (tag | rgb) & 0xFFFFFFFFL;
         return rgb;
     }
@@ -394,7 +394,7 @@ final class DanmakuHook {
         return null;
     }
 
-    /** 文字 → 颜色 key。读不到就退回 fallback（对象身份）。 */
+    /** 文字 → 颜色 key（这个对象里所有非空文字字段合起来的哈希）。读不到就退回 fallback（对象身份）。 */
     private static int textKey(Object mp, int fallback) {
         try {
             if (mp == null) return fallback;
@@ -414,17 +414,48 @@ final class DanmakuHook {
                 intrFields = fs;
                 intrCls = ic;
             }
+            int h = 0;
+            boolean any = false;
             for (Field f : fs) {
                 if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
                 if (!CharSequence.class.isAssignableFrom(f.getType())) continue;
                 Object v = f.get(in);
                 if (v instanceof CharSequence && ((CharSequence) v).length() > 0) {
-                    return v.toString().hashCode();
+                    h = h * 31 + v.toString().hashCode(); // 所有文字字段一起算：弹幕正文不管在第几个字段都参与，不会被共用字符串盖住
+                    any = true;
                 }
             }
+            if (any) return h;
         } catch (Throwable ignored) {
         }
         return fallback;
+    }
+
+    /**
+     * 文字 key → 出现顺序号（1 起）：同一段文字永远是同一个号，新文字拿下一个号。
+     * 颜色按号分配，相邻两个号的色相差约 137.4°，所以先后出现的弹幕颜色拉得很开。
+     * 1024 项、撞了往后探 4 格，4 格都被占才覆盖第一格（被挤掉的文字再出现会拿新号）。
+     */
+    private static final int[] SK = new int[1024];
+    private static final int[] SN = new int[1024];
+    private static int seqNext = 1;
+
+    private static int seq(int k) {
+        int s = mix(k) & 1023;
+        for (int i = 0; i < 4; i++) {
+            int j = (s + i) & 1023;
+            if (SN[j] == 0) {
+                SK[j] = k;
+                SN[j] = seqNext;
+                seqNext = (seqNext & 0xFFFFFF) + 1;
+                return SN[j];
+            }
+            if (SK[j] == k) return SN[j];
+        }
+        SK[s] = k;
+        SN[s] = seqNext;
+        seqNext = (seqNext & 0xFFFFFF) + 1;
+        return SN[s];
     }
 
     private static int mix(int x) {
@@ -436,10 +467,10 @@ final class DanmakuHook {
         return x;
     }
 
-    /** 同一个 key（文字哈希）永远得到同一个颜色，所以弹幕滚动、被重新测量都不会闪。HSV→RGB 手算，不分配对象（每帧每条弹幕都会走到这里）。 */
+    /** 同一个顺序号永远得到同一个颜色，所以弹幕滚动、被重新测量都不会闪。色相按号走黄金角，饱和度/明度（任意模式）仍由号混出来。HSV→RGB 手算，不分配对象。 */
     private static int pick(int key, int mode, int lift) {
         int m = mix(key);
-        float h = ((m & 0xFFFF) % 360) / 60f;
+        float h = (int) ((key * 1374L) % 3600L) / 600f;
         float s, v;
         if (mode == 0) {
             s = 0.75f + ((m >>> 16) & 0xFF) / 255f * 0.25f;

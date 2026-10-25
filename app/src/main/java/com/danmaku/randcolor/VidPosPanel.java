@@ -27,7 +27,8 @@ final class VidPosPanel {
     private VidPosPanel() {}
 
     private static WeakReference<FrameLayout> layerRef;
-    private static TextView tvPos, btnPub, btnTime, btnLp, prev;
+    private static TextView tvPos, btnPub, btnTime, btnLp;
+    private static View prev;
     private static int target; // 0 = 发布地  1 = 时长  2 = 按键
     private static int[] o = new int[6]; // 打开时的 pubX, pubY, timeX, timeY, lpX, lpY（「取消」回到这里）
     private static boolean opened;
@@ -205,6 +206,7 @@ final class VidPosPanel {
         layer.setOnTouchListener(DRAG);
 
         prev = LongPressHook.makeButton(ctx); // 长按面板按键的预览：选「按键」时才显示，在浮窗下面
+        prev.setClickable(false); // 预览不吃触摸，拖动交给下面的触摸层
         DanmakuConfig pc = DanmakuHook.cfg;
         layer.addView(prev, LongPressHook.place(ctx, pc.lpX, pc.lpY));
 

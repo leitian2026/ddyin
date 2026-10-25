@@ -5,6 +5,7 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.os.SystemClock;
 import android.view.ViewConfiguration;
@@ -18,6 +19,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import java.lang.ref.WeakReference;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 import de.robv.android.xposed.XC_MethodHook;
@@ -40,16 +42,19 @@ import de.robv.android.xposed.XposedBridge;
  *     - 其余（用户自己长按）：setResult(null) 跳过原来的 show = 忽略，什么都不弹。
  *  2. 常驻按键：回到前台时（onResume）把按键挂到主界面 Activity 的窗口最上层（只有按键本身，没有全屏触摸层）；开关关了 / 不是主界面就拿掉。
  *     样式和右侧点赞 / 评论 / 分享一致：白色实心图标 + 下面一行白字（带阴影），竖着排。
- *  3. 点按键：armed = true，向当前窗口发一次合成长按（按下 → 等系统长按时间 → 抬起），
- *     抖音自己的长按识别照常走到 DialogFragment#show，钩子放行 = 弹出当前视频原来的面板，面板内容 / 后续逻辑一点没改。
- *     没有长按就没有面板对象，所以只能这样「替用户长按一次」。
+ *  3. 点按键：armed = true，直接跑当前视频那个 LongPressLayout 里长按计时任务（Runnable）的 run()，没有延迟。
+ *     依据（TextRec 40.9.0，textrec-tasks-20261025-102152）：长按时栈是 Handler → X.0tdv.run → Y.AhaS2700S0100000_34.LIZ(float, float)
+ *     → X.10du.LIZIZ / LIZJ → LongPressPanelServiceImpl.LJIIZILJ → … → DialogFragment#show，全是同一个栈、同步；X.0tdv 在
+ *     LongPressLayout.<init> 里创建，字段只有 LongPressLayout（指回控件）和 bytex 插桩字段。混淆名一律不用，用没混淆的类型找
+ *     （见 findLongPressRunnable）。钩子放行这一次 show = 弹出当前视频原来的面板，面板内容 / 后续逻辑一点没改。
+ *     找不到计时任务（类型对不上 / 有歧义）时退回「向窗口发一次合成长按」（有延迟）。
  *  4. 按键位置 lpX / lpY（dp，左 / 上，-1 = 默认在屏幕右侧），在抖音里用位置浮窗（VidPosPanel）选「按键」拖，和视频时长一样。
- * 没有轮询、没有扫描；钩子回调只在弹面板时才走到。点一次按键会 postDelayed 一条「抬起」消息（用户点一次一条，不是定时器）。
+ * 没有轮询、没有定时器；钩子回调只在弹面板时才走到；点按键时遍历一次视图树找 LongPressLayout（用户点一次一次）。退路才会 postDelayed 一条「抬起」。
  *
  * 局限（没编译、没上机）：
  *  - 只在 40.9.0 一台手机上验证过钩点；类名 / 重载变了会安静失效（长按照常弹面板），设置页「钩子状态」里 lp.show 会显示未适配。
- *  - 主界面 Activity 的类名（MAIN_ACT）没有 TextRec 证据，是按抖音常见命名写的；对不上时按键不显示，需要抓一份 Activity 名确认。
- *  - 合成长按的落点是窗口中心偏上（避开按键）：抖音如果用自己的长按识别器 / 要求特定控件才触发，点按键可能弹不出面板，需要上机验证。
+ *  - 直接 run() 没有上机验证：计时任务的 run() 如果还要读控件上「按下时记的状态」（按下位置、是否按着），没有真实触摸时可能什么都不做，点按键弹不出面板。
+ *  - 同时有多个 LongPressLayout 时按「屏幕上可见面积最大」选；个人页、直播间里的子类也会被选中，它们的长按是不是同一个面板没验证。
  *  - 常驻按键挂在整个主界面上，主界面里切到个人页、搜索等别的页面时按键也在。
  *  - 跳过 show 后抖音自己有没有「面板正在显示」之类的状态没追踪过。
  */
@@ -62,8 +67,10 @@ final class LongPressHook {
 
     private static final XC_MethodHook HOOK = new Hook();
 
-    /** 主界面 Activity 的类名（没有 TextRec 证据，对不上就不显示按键，见文件头局限）。 */
+    /** 主界面 Activity 的类名（TextRec 40.9.0 textrec-tasks-20261025-102152：LongPressPanelLaunchParams(context=com.ss.android.ugc.aweme.main.MainActivity@…)）。 */
     private static final String MAIN_ACT = "com.ss.android.ugc.aweme.main.MainActivity";
+    /** 长按识别的控件（没混淆的 View 类，每个视频页一个；个人页 / 直播的子类也是它）。 */
+    private static final String LP_LAYOUT = "com.ss.android.ugc.aweme.feed.ui.LongPressLayout";
 
     /** 点按键触发的那一次长按放行（主线程读写）。 */
     private static boolean armed;
@@ -155,12 +162,103 @@ final class LongPressHook {
         if (b != null && b.getParent() instanceof ViewGroup) ((ViewGroup) b.getParent()).removeView(b);
     }
 
-    /** 点按键：放行下一次面板 show，向窗口发一次合成长按（按下 → 系统长按时间后抬起）。 */
+    /**
+     * 点按键：放行下一次面板 show，然后直接跑当前视频那个 LongPressLayout 里的「长按计时任务」（Runnable）的 run()，
+     * 同步走完抖音自己的长按流程，没有延迟；找不到计时任务时退回「合成一次长按」（有延迟）。
+     */
     private static void fire() {
         final Activity a = btnAct == null ? null : btnAct.get();
         View b = btnRef == null ? null : btnRef.get();
         if (a == null || b == null || a.isFinishing() || a.isDestroyed()) return;
         View top = a.getWindow().getDecorView();
+        Runnable r = findLongPressRunnable(top);
+        if (r != null) {
+            armed = true;
+            try {
+                r.run();
+            } catch (Throwable ignored) {
+            } finally {
+                armed = false; // show 在 run 里同步调用，走完就不留放行标记
+            }
+            return;
+        }
+        fireSynthetic(a, b, top);
+    }
+
+    /**
+     * 当前屏幕上的 LongPressLayout（可见面积最大的一个）里的长按计时任务。
+     * 依据（TextRec 40.9.0，textrec-tasks-20261025-102152）：X.0tdv 实现 Runnable，在 LongPressLayout.&lt;init&gt; 里创建，
+     * 字段只有 LongPressLayout（指回控件）和 bytex 的两个插桩字段；它的 run() 同步调到长按回调（x, y）→ 面板的 show，栈里没有别的异步。
+     * 混淆名一律不用：在控件（及父类，不含 View）的字段里找「值是 Runnable、它的类里有一个字段类型是 LongPressLayout 且指回这个控件」的，
+     * 找到不止一个（有歧义）或一个都没有就返回 null。
+     */
+    private static Runnable findLongPressRunnable(View root) {
+        try {
+            View[] best = new View[1];
+            int[] area = new int[1];
+            scan(root, best, area, new Rect());
+            View v = best[0];
+            if (v == null) return null;
+            Class<?> base = null;
+            for (Class<?> c = v.getClass(); c != null && c != View.class; c = c.getSuperclass()) {
+                if (LP_LAYOUT.equals(c.getName())) {
+                    base = c;
+                    break;
+                }
+            }
+            if (base == null) return null;
+            Runnable found = null;
+            for (Class<?> c = v.getClass(); c != null && c != View.class; c = c.getSuperclass()) {
+                for (Field f : c.getDeclaredFields()) {
+                    if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
+                    f.setAccessible(true);
+                    Object o = f.get(v);
+                    if (!(o instanceof Runnable) || o == found) continue;
+                    if (!pointsBack(o, base, v)) continue;
+                    if (found != null) return null; // 有歧义：一个都不动
+                    found = (Runnable) o;
+                }
+            }
+            return found;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static boolean pointsBack(Object o, Class<?> base, View owner) throws Exception {
+        for (Class<?> k = o.getClass(); k != null && k != Object.class; k = k.getSuperclass()) {
+            for (Field f : k.getDeclaredFields()) {
+                if (f.getType() != base || java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
+                f.setAccessible(true);
+                if (f.get(o) == owner) return true;
+            }
+        }
+        return false;
+    }
+
+    /** 遍历窗口里的视图，挑出可见面积最大的 LongPressLayout（只在点按键那一下走一次）。 */
+    private static void scan(View v, View[] best, int[] area, Rect tmp) {
+        if (v == null || v.getVisibility() != View.VISIBLE) return;
+        for (Class<?> c = v.getClass(); c != null && c != View.class; c = c.getSuperclass()) {
+            if (LP_LAYOUT.equals(c.getName())) {
+                if (v.isShown() && v.getGlobalVisibleRect(tmp)) {
+                    int ar = tmp.width() * tmp.height();
+                    if (ar > area[0]) {
+                        area[0] = ar;
+                        best[0] = v;
+                    }
+                }
+                break;
+            }
+        }
+        if (v instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0, n = g.getChildCount(); i < n; i++) scan(g.getChildAt(i), best, area, tmp);
+        }
+    }
+
+    /** 退路：向窗口发一次合成长按（按下 → 系统长按时间后抬起），有延迟。 */
+    private static void fireSynthetic(final Activity a, View b, View top) {
         int w = top.getWidth(), h = top.getHeight();
         if (w <= 0 || h <= 0) return;
         float x = w * 0.5f, y = h * 0.4f;

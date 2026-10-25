@@ -245,11 +245,13 @@ final class CommentHook {
         }
     }
 
+    private static final Rect HIT = new Rect();
+
     /** (x, y) 落在 v 的子树里某个「小的、有点击监听」的控件上（面积不到 v 的一半，大的是整页的点击层）。只在自己认出双击时调用一次。 */
     private static boolean onButton(View v, float x, float y, int area) {
         if (!(v instanceof ViewGroup)) return false;
         ViewGroup g = (ViewGroup) v;
-        Rect r = new Rect();
+        Rect r = HIT; // 主线程上用，递归前已经取完要用的值，共用一个不用每层 new
         for (int i = g.getChildCount() - 1; i >= 0; i--) {
             View c = g.getChildAt(i);
             if (c.getVisibility() != View.VISIBLE) continue;

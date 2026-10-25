@@ -128,8 +128,8 @@ public class MainActivity extends Activity {
         place(sProf);
 
         swLp = new Switch(this);
-        Section sLp = new Section("首页长按弹框改成按键", false, null, () -> swLp.isChecked() ? "已开启" : "未开启");
-        sLp.body.addView(switchRow("长按先弹出按键", "在首页长按视频不再直接弹出面板（分享给朋友、不感兴趣等），先弹出一个按键，点按键才弹出原来的面板；点按键以外的地方、按返回，什么都不弹", swLp));
+        Section sLp = new Section("首页长按改成常驻按键", false, null, () -> swLp.isChecked() ? "已开启" : "未开启");
+        sLp.body.addView(switchRow("长按忽略，面板用常驻按键打开", "在首页长按视频什么都不做（不再弹出分享给朋友、不感兴趣等面板）；首页右侧一直显示一个「面板」按键（样式和点赞、评论一致），点它才弹出原来的面板", swLp));
         sLp.body.addView(rowLine());
         sLp.body.addView(vidPosRow(2));
         place(sLp);
@@ -824,7 +824,7 @@ public class MainActivity extends Activity {
             {"live.room", "直播间开播时间：房间数据"},
             {"prof.pager", "我的主页默认喜欢：记住个人主页的翻页控件（ViewPager#setCurrentItem）"},
             {"prof.enter", "我的主页默认喜欢：点底部「我」时切到喜欢（MainPageFragment$2#onChanged）"},
-            {"lp.show", "首页长按弹框改成按键：拦住长按面板的弹出（DialogFragment#show）"},
+            {"lp.show", "首页长按改成常驻按键：拦住长按面板的弹出（DialogFragment#show）"},
     };
 
     /** 用 root 读抖音数据目录里的 hooks.properties（抖音进程自己写的），列出每个钩子的状态。 */

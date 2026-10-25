@@ -7,10 +7,7 @@ import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.os.Looper;
-import android.os.SystemClock;
-import android.view.ViewConfiguration;
 import android.view.Gravity;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
@@ -60,9 +57,9 @@ import de.robv.android.xposed.XposedBridge;
  *     → X.10du.LIZIZ / LIZJ → LongPressPanelServiceImpl.LJIIZILJ → … → DialogFragment#show，全是同一个栈、同步；X.0tdv 在
  *     LongPressLayout.<init> 里创建，字段只有 LongPressLayout（指回控件）和 bytex 插桩字段。混淆名一律不用，用没混淆的类型找
  *     （见 findLongPressRunnable）。钩子放行这一次 show = 弹出当前视频原来的面板，面板内容 / 后续逻辑一点没改。
- *     找不到计时任务（类型对不上 / 有歧义）时退回「向窗口发一次合成长按」（有延迟）。
+ *     不许有任何兜底：找不到计时任务（类型对不上 / 有歧义）或 run() 没弹出面板，就什么都不做（1.39.1 起没有「合成长按」退路了）。
  * 没有轮询、没有定时器；两个钩子的回调只在弹面板 / 绑头像时才走到实处；点按键时遍历一次视图树找 LongPressLayout（用户点一次一次）。
- * 退路才会 postDelayed 一条「抬起」。回调里只有第一次认头像时按资源名解析一次 id（getIdentifier，一次性），放按键时 new 一个 View（一页一次）。
+回调里只有第一次认头像时按资源名解析一次 id（getIdentifier，一次性），放按键时 new 一个 View（一页一次）。
  *
  * 局限（没编译、没上机）：
  *  - 只在 40.9.0 一台手机上验证过钩点；类名 / 重载变了会安静失效（长按照常弹面板，或没有按键），设置页「钩子状态」里 lp.show / lp.col 会显示未适配。
@@ -244,23 +241,22 @@ final class LongPressHook {
 
     /**
      * 点按键：放行下一次面板 show，然后直接跑当前视频那个 LongPressLayout 里的「长按计时任务」（Runnable）的 run()，
-     * 同步走完抖音自己的长按流程，没有延迟；找不到计时任务时退回「合成一次长按」（有延迟）。
+     * 同步走完抖音自己的长按流程，没有延迟。
+     * 不许有任何兜底（用户明确要求）：找不到控件 / 找不到计时任务 / 有歧义 / run() 没弹出面板，都什么都不做，不发合成触摸、不换别的办法。
      */
     private static void fire(View b) {
         View top = b.getRootView();
         if (top == null || !b.isAttachedToWindow()) return;
-        Runnable r = findLongPressRunnable(top);
-        if (r != null) {
-            armed = true;
-            try {
-                r.run();
-            } catch (Throwable ignored) {
-            } finally {
-                armed = false; // show 在 run 里同步调用，走完就不留放行标记
-            }
-            return;
+        View lv = pickLayout(top);
+        Runnable r = lv == null ? null : findLongPressRunnable(lv);
+        if (r == null) return;
+        armed = true;
+        try {
+            r.run();
+        } catch (Throwable ignored) {
+        } finally {
+            armed = false; // show 在 run 里同步调用，走完就不留放行标记
         }
-        fireSynthetic(b, top);
     }
 
     /**
@@ -270,13 +266,19 @@ final class LongPressHook {
      * 混淆名一律不用：在控件（及父类，不含 View）的字段里找「值是 Runnable、它的类里有一个字段类型是 LongPressLayout 且指回这个控件」的，
      * 找到不止一个（有歧义）或一个都没有就返回 null。
      */
-    private static Runnable findLongPressRunnable(View root) {
+    private static View pickLayout(View root) {
         try {
             View[] best = new View[1];
             int[] area = new int[1];
             scan(root, best, area, new Rect());
-            View v = best[0];
-            if (v == null) return null;
+            return best[0];
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static Runnable findLongPressRunnable(View v) {
+        try {
             Class<?> base = null;
             for (Class<?> c = v.getClass(); c != null && c != View.class; c = c.getSuperclass()) {
                 if (LP_LAYOUT.equals(c.getName())) {
@@ -333,37 +335,6 @@ final class LongPressHook {
             ViewGroup g = (ViewGroup) v;
             for (int i = 0, n = g.getChildCount(); i < n; i++) scan(g.getChildAt(i), best, area, tmp);
         }
-    }
-
-    /** 退路：向窗口发一次合成长按（按下 → 系统长按时间后抬起），有延迟。 */
-    private static void fireSynthetic(View b, final View top) {
-        int w = top.getWidth(), h = top.getHeight();
-        if (w <= 0 || h <= 0) return;
-        float x = w * 0.5f, y = h * 0.4f;
-        int[] loc = new int[2];
-        b.getLocationInWindow(loc);
-        if (x >= loc[0] && x <= loc[0] + b.getWidth() && y >= loc[1] && y <= loc[1] + b.getHeight()) y = h * 0.25f; // 躲开按键
-        final float fx = x, fy = y;
-        long down = SystemClock.uptimeMillis();
-        MotionEvent d = MotionEvent.obtain(down, down, MotionEvent.ACTION_DOWN, fx, fy, 0);
-        armed = true;
-        top.dispatchTouchEvent(d);
-        d.recycle();
-        final long dt = down;
-        b.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    long now = SystemClock.uptimeMillis();
-                    MotionEvent u = MotionEvent.obtain(dt, now, MotionEvent.ACTION_UP, fx, fy, 0);
-                    top.dispatchTouchEvent(u);
-                    u.recycle();
-                } catch (Throwable ignored) {
-                } finally {
-                    armed = false; // 没弹出来也不留着放行标记，下一次用户长按照样忽略
-                }
-            }
-        }, ViewConfiguration.getLongPressTimeout() + 400);
     }
 
     // ------------------------------------------------------------ 按键的样子

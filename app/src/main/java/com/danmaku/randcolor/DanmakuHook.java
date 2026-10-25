@@ -119,7 +119,7 @@ final class DanmakuHook {
                         if (!(p.thisObject instanceof Activity)) return;
                         Activity a = (Activity) p.thisObject;
                         PubHook.onResume(a);
-                        LongPressHook.onResume(a);
+                        LongPressHook.onResume();
                         LiveHook.onResume();
                         IdleExit.onResume();
                         HookGuard.noteVersion(a);

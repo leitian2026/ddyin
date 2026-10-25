@@ -45,7 +45,7 @@ LSPosed 日志里会出现两种关键行（只在状态变成「放弃」「不
 | `HookGuard.java` | 钩子编号 / id 清单、状态、停止条件、落盘、`find` / `hook` / `ok` / `miss` / `waitFail` |
 | `DanmakuHook.java` | 入口 `init(lp)`、`hookResume()`（每次回到前台的重试入口）、弹幕 `paint` 钩子（分档匹配示例） |
 | `TimeHook.java` | 时长进度：1 个钩子 `time.progress`（`OnUIPlayListenerDelegate#onPlayProgressChange`，单方法按名字匹配的示例），把 id / 位置 / 总时长转给 `PubHook.onProgress` |
-| `CommentHook.java` | 双击改评论：3 个没混淆的钩子（`dtap.seen` 系统方法、`dtap.cut` 在拦截判断里改结果，两个都挂上才生效；`dtap.click` 跳过随后的单击暂停）+ `dtap.btn`（只找评论按钮的类 `FeedCommentImageView`，不挂钩，类没了设置页能看到）。评论按钮在被双击的这一页（`dtap.cut` 回调里的 `this`）的子树里按类名找，点它的**父级**；找不到就放行，双击照常点赞 |
+| `CommentHook.java` | 双击改评论：3 个没混淆的钩子（`dtap.seen` 系统方法、`dtap.cut` 在拦截判断里改结果，两个都挂上才生效；`dtap.click` 跳过随后的单击暂停）+ `dtap.btn`（只找评论按钮的类 `FeedCommentImageView`，不挂钩，类没了设置页能看到）。评论按钮在被双击的这一页（`dtap.cut` 回调里的 `this`）的子树里按类名找，点它的**父级**；找不到就放行，双击照常点赞。1.36.0 起 `dtap.cut` 里还自己认一次双击兜底（抖音的识别器漏判时）：第一下抬起 → 第二下按下，间隔 400ms、落点在系统 DoubleTapSlop 内，第一下必须是点按；只在已有的拦截钩子里存两个数、做一次比较，没有定时器、没有新钩子；自己认出来的双击落在小的可点控件（按钮）上不算 |
 | `MainActivity.java` | 设置页（折叠分组 `Section`）；`HOOK_NAMES` 是「钩子 id → 中文名」，`describeHooks` 解析 `hooks.properties` |
 | `PubHook.java` | 发布日期地点、视频时长、文案样式。核心钩子 `pub.bind`（`VideoViewHolder#bind(Aweme, …)` after：按运行时类型取页面根 `VideoViewHolderRootView`，发布信息 / 时长两个浮层盖在页面根上（位置全屏可调），aid → 页面登记在 `PAGES` 里给进度回调用；3 个类（holder / Aweme / 页面根）按名字找，缺哪个都是「类没找到」）；文案样式和上顶另外 3 个：`pub.anchor`（只找类不挂钩：两个文案类、容器 `AwemeIntroInfoLayout`、页面根 `VideoViewHolderRootView`；上顶和文案下方位置不再依赖 `pub.bind` 装成功）、`pub.text`（`DmtTextView#setText` 通用控件，回调里先比较 `this` 的类；文案样式在这里套，**容器也从这里来**：文案第一次认出时沿父级找到 `AwemeIntroInfoLayout`，往上找 `VideoViewHolderRootView` 登记这一页，接手容器——整个容器 `translationY` 上移，下面留出空位给发布地和时长；1.30.0 起没有 `pub.intro` 和「从根往下找」，容器只有这一个入口；文案样式、上顶、文案下方位置有一个开着就挂）、`cap.draw`（`MentionTextView#onDraw`）、`name.draw`（`DmtTextView#onDraw`，作者名改色 / 灰色底，只认 `AwemeIntroInfoLayout` 里 id=title 的那个） |
 | `TabHook.java` | 首页顶部标签隐藏：类名按没混淆的 `HomeTopTabItemViewNew` 找（走 HookGuard），挂框架方法 `View.setContentDescription` 并按这个类过滤 |
@@ -53,7 +53,7 @@ LSPosed 日志里会出现两种关键行（只在状态变成「放弃」「不
 | `LiveHook.java` | 直播间开播时间：钩 `LivePlayFragmentV2#onViewCreated`（记页面）和 `Room#getCreateTime`（触发刷新），文字叠在页面根控件的 ViewOverlay 上，位置按百分比放；格式在 `LiveFormat.java` |
 | `LivePosPanel.java` | 开播时间的位置浮窗（不是钩子）：设置页点「去抖音里调整」后配置里 `liveAdjust=true`，`LiveHook` 刷新时把屏幕上的直播页交给它，它在窗口最上层盖触摸层 + 小浮窗，拖动 / 微调 / 完成 / 取消；只在调节模式里存在，没有定时器 |
 | `VidPosPanel.java` | 发布日期地点行 / 视频时长行的位置浮窗（不是钩子）：`vidAdjust=true` 时 `PubHook.onResume` 把当前 Activity 交给它，盖触摸层 + 小浮窗，拖动调浮层位置 `pubX/pubY/timeX/timeY`（dp）；只在调节模式里存在，没有定时器 |
-| `ProfHook.java` | 个人主页默认「喜欢」：2 个钩子。`prof.pager`（`ViewPager#setCurrentItem` 两个重载，记 `ProfileViewPager` 的弱引用；冷启动计数期间把抖音自己恢复标签的 `(0)` 改成 99）、`prof.enter`（`MainPageFragment$2#onChanged`，参数 Pair 以 `(USER,` 开头 = 点底部「我」，触发时对记下的分页控件调 `setCurrentItem(99, false)`；进程里第一次触发还把计数设成设置里的次数 `profRestores`（默认 3，0～10），`(HOME,` 清零）。没有扫描、没有点击检测、没有定时器 |
+| `ProfHook.java` | 个人主页默认「喜欢」：2 个钩子。`prof.pager`（`ViewPager#setCurrentItem` 两个重载，记 `ProfileViewPager` 的弱引用；窗口里取消触发时记下的那个分页控件上的 `setCurrentItem(0)`，只要栈里没有类名以 `com.bytedance.ies.dmt.ui.widget.tablayout.DmtTabLayout` 开头的帧——有的是标签栏自己选的（手点标签）放行，没有的是抖音延迟投递的恢复）、`prof.enter`（`MainPageFragment$2#onChanged`，参数 Pair 以 `(USER,` 开头 = 点底部「我」，触发时记下分页控件、打开窗口并对它调 `setCurrentItem(99, false)`；`(HOME,` 关窗口）。1.36.0 起不再数次数，设置里没有 `profRestores` 了。看栈（`new Throwable()`）只在窗口里的 `(0)` 被调到时做，每次进「我」几次，是回调不分配对象这条的唯一例外。没有扫描、没有点击检测、没有定时器 |
 | `RootShell.java` | `readFile(pkg, name)` 用 root 读抖音数据目录里的文件 |
 
 ## 3. 新增一个钩子：必须做的 6 步

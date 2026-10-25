@@ -1,3 +1,15 @@
+# ⛔ 最高优先级规则：不许有任何兜底行为
+
+**用户明确、反复要求：这个项目里不能有任何兜底（fallback）行为。** 写任何功能时：
+
+- 一条路走不通（找不到控件 / 找不到方法 / 匹配有歧义 / 结果没出现），就**什么都不做、安静失效**，**不准**再换别的办法顶上（不准「找不到就改发合成触摸」「找不到就退回另一种匹配」「没弹出来就再试一次」「宽松再找一遍」这类）。
+- 想到「万一不行就……」，那句话就是兜底，**删掉，不写**。出问题用 TextRec 取证后修正主路，不靠兜底。
+- `HookGuard` 的「挂不上就放弃 / 不再重试」是自检，不是兜底，照常用。
+
+改代码前先对照这一条；README 里写「退回…」「兜底」的新功能一律不接受。
+
+---
+
 # 钩子与自检规范（给改这个项目的人 / AI：新增钩子、新功能前必读）
 
 这个模块靠 Xposed 钩住抖音里的方法。抖音每次更新，**混淆过的名字会变**，钩子可能失效。
@@ -54,7 +66,7 @@ LSPosed 日志里会出现两种关键行（只在状态变成「放弃」「不
 | `LivePosPanel.java` | 开播时间的位置浮窗（不是钩子）：设置页点「去抖音里调整」后配置里 `liveAdjust=true`，`LiveHook` 刷新时把屏幕上的直播页交给它，它在窗口最上层盖触摸层 + 小浮窗，拖动 / 微调 / 完成 / 取消；只在调节模式里存在，没有定时器 |
 | `LongPressHook.java` | 首页长按改成常驻按键：2 个钩子 `lp.show`（`DialogFragment#show(FragmentManager, String)`，this 的类名是 `LongPressPanelFragmentImpl` 才处理；依据 TextRec 40.9.0 `textrec-tasks-20261025-094241`）。before：`armed`（点按键置位）时放行，否则 `setResult(null)` 忽略用户长按。常驻按键放在右侧按钮列 `FeedRightScaleView`（没混淆）里、作者头像 `SmartAvatarBorderView#user_avatar` 那一项前面，跟着头像走（1.39.0，依据 TextRec 40.9.0 `textrec-tasks-20261025-131001`）；放的时机是 `lp.col` = `DraweeView#setController` after（this 的类是头像类且资源名是 user_avatar 才往上找列，列里没有按键就 `addView`，一页一次），`onResume` 只按开关把已放的按键显示 / 隐藏；点按键：置 `armed`，直接 `run()` 当前视频 `LongPressLayout` 里的长按计时任务（按没混淆的类型找，有歧义不动），找不到退回合成长按。依据 TextRec `textrec-tasks-20261025-102152`。功能没开不挂钩子。没有定时器 / 扫描 |
 | `VidPosPanel.java` | 发布日期地点行 / 视频时长行的位置浮窗（不是钩子）：`vidAdjust=true` 时 `PubHook.onResume` 把当前 Activity 交给它，盖触摸层 + 小浮窗，拖动调浮层位置 `pubX/pubY/timeX/timeY`（dp）；只在调节模式里存在，没有定时器 |
-| `ProfHook.java` | 个人主页默认「喜欢」：2 个钩子。`prof.pager`（`ViewPager#setCurrentItem` 两个重载，记 `ProfileViewPager` 的弱引用；窗口里把触发时记下的那个分页控件上的 `setCurrentItem(0)` 的参数换成 99（1.36.1 起；1.36.0 是取消。改的原因是防冷启动第一次触发时页还没建好、那一下 99 没效果，取消后没人再补——这是推断，没上机验证），只要栈里没有类名以 `com.bytedance.ies.dmt.ui.widget.tablayout.DmtTabLayout` 开头的帧——有的是标签栏自己选的（手点标签）放行，没有的是抖音延迟投递的恢复，在页建好之后才来）、`prof.enter`（`MainPageFragment$2#onChanged`，参数 Pair 以 `(USER,` 开头 = 点底部「我」，触发时记下分页控件、打开窗口并对它调 `setCurrentItem(99, false)`；`(HOME,` 关窗口）。1.36.0 起不再数次数，设置里没有 `profRestores` 了。看栈（`new Throwable()`）只在窗口里的 `(0)` 被调到时做，每次进「我」几次，是回调不分配对象这条的唯一例外。没有扫描、没有点击检测、没有定时器 |
+| `ProfHook.java` | 个人主页默认「喜欢」：2 个钩子（1.39.2 起只做一件事）。`prof.pager`（`ViewPager#setCurrentItem` 两个重载，只记 `ProfileViewPager` 的弱引用，不改任何参数）、`prof.enter`（`MainPageFragment$2#onChanged`，参数 Pair 以 `(USER,` 开头 = 点底部「我」，触发时对记下的分页控件调一次 `setCurrentItem(99, false)`）。1.36.x 的「窗口里把抖音自己的 `setCurrentItem(0)` 换成 99」会让头部和标签栏回不来，已删除（用户上机确认关掉功能就正常）。没有扫描、没有点击检测、没有定时器、没有看栈 |
 | `RootShell.java` | `readFile(pkg, name)` 用 root 读抖音数据目录里的文件 |
 
 ## 3. 新增一个钩子：必须做的 6 步

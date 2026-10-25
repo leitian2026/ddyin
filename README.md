@@ -23,6 +23,14 @@
 ## 使用
 设置页的内容按功能折叠成一个个分组（点标题展开，展开一个其他自动收起；有总开关的分组不用展开就能开关）。前提：LSPosed 里启用模块、作用域勾选抖音、强杀抖音重开；改完点底部「保存并应用」（需要 root），抖音回到前台即生效。不推送则用默认：开启 + 鲜艳随机。
 
+## 1.40.5：个人主页默认「喜欢」——个人页创建时改参数，让抖音自己选「喜欢」
+
+- **问题**：现有的 `prof.enter` 在点「我」之后对分页控件调 `setCurrentItem(99, false)`，是在抖音的默认标签流程之外硬切，页面和抖音自己记的状态可能不一致。
+- **依据**：TextRec 40.9.0 `textrec-tasks-20261025-184708`（冷启动点「我」）。点「我」时 `MyPandaFragment#setArguments` 在 18764ms 调用，参数 `{extra_enter_method=click_tab_bar, from=from_main}`；个人页 `onResume` 在 19412ms，USER 回调在 19531ms，参数早约 650ms 设好。冷启动先不点的那段时间里没有 `MyPandaFragment`。参数里没有 `tab_type`（抖音默认 0）。`Panda.LJIIL()` 读的是这个 Fragment 的 `getArguments()`。`MyPandaFragment` 全名 `com.ss.android.ugc.aweme.profile.ui.core.MyPandaFragment`，没混淆。
+- **改法**：新钩子 `prof.args`，`androidx.fragment.app.Fragment#setArguments(Bundle)` before：`this` 的类名是 `MyPandaFragment` 才处理，往 Bundle 里放 `tab_type = 2`（`putInt`）。其余 Fragment 一次字符串比较就返回，回调里不分配、不反射、不打日志。开关还是「个人主页默认喜欢」（`profFav`），在回调里判断；功能没开不挂。
+- **`HookGuard`**：新增编号 `PROF_ARGS = 19` / id `prof.args`；`ProfHook.tryHook` 已在 `DanmakuHook.init` 和 `hookResume` 里调用，不用另加；设置页钩子状态里加了显示名。只加新钩子、没改旧规则，`RULES_REV` 不变。
+- **局限（没编译、没上机）**：服务端给账号下发了 `profileTabInfoStruct.b != 0` 时，`tab_type` 不会覆盖它，这时不生效，需要上机验证；只管页面创建那一次，之后每次点「我」仍靠 `prof.enter` 的切页；`tab_type` 按 int 放，抖音读的类型不是 int 就读不到。没挂上或不生效时个人主页保持原样，安静失效，没有任何补救。
+
 ## 1.40.4：点「面板」按键前，先把落点写成这一页长按层的正中间
 
 - **问题**：没触摸的页（刚划到、没点过的页）点按键，`run()` 执行了但面板没弹（TextRec 1.32.1 `textrec-tasks-20261025-235515` 实测，1.40.3 的「没改的」里记着）。

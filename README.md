@@ -23,15 +23,23 @@
 ## 使用
 设置页的内容按功能折叠成一个个分组（点标题展开，展开一个其他自动收起；有总开关的分组不用展开就能开关）。前提：LSPosed 里启用模块、作用域勾选抖音、强杀抖音重开；改完点底部「保存并应用」（需要 root），抖音回到前台即生效。不推送则用默认：开启 + 鲜艳随机。
 
+## 1.39.0：面板按键放进右侧按钮列、头像上方（跟着头像走），删掉按键位置调节
+
+- **做什么**：「面板」按键不再盖在整个窗口上，而是作为右侧按钮列（点赞 / 评论 / 收藏 / 分享那一列）的一个子项，放在作者头像的正上方，和头像一起移动。位置不再需要调：位置浮窗里的「按键」、设置页的按键「位置」一行、配置里的 `lpX / lpY`、`LongPressHook.place` / `makeButton` 预览全部删除（旧配置里的 `lpX / lpY` 读到也直接忽略）。
+- **依据**（TextRec 40.9.0，`textrec-tasks-20261025-131001`，视图树 / 点击入口 / 图标记录）：作者头像是 `com.ss.android.ugc.aweme.base.ui.SmartAvatarBorderView`（资源名 `user_avatar`）；它在 `RelativeLayout #i=i → FrameLayout #b15 → FrameLayout #b16 → com.ss.android.ugc.aweme.feed.ui.FeedRightScaleView #x2k`（竖向 LinearLayout，类名没混淆）里，头像在 `#i=i` 里的偏移固定，变的是整列的 y（同一台手机上 1538 ↔ 1448，头像 1588 ↔ 1498，关注加号同步）。所以放进列里，由 LinearLayout 自己布局就跟着头像走，不算坐标。头像图片的设置入口 `com.facebook.drawee.view.DraweeView#setController`（TextRec 标 [稳定]，栈第 1 层，main 线程）。
+- **新钩子** `lp.col`（`LongPressHook.java`，设置页「钩子状态」里有）：`DraweeView#setController` after；回调里先比较 `this` 的类是不是 `SmartAvatarBorderView`（别的图一次类比较就放行），再看资源名是不是 `user_avatar`（id 第一次用到时按名字解析一次），然后往上找 `FeedRightScaleView`，这一列里还没有按键就 `addView` 到头像那一项前面（一页一次）。类找不到走 `waitFail`，`DraweeView` 里没有 `setController` 走 `miss`。开关（`lpBtn`）关着不挂；`lp.show`（拦长按面板）没挂上时不放按键；不在主线程不放。没有定时器、没有轮询、没有点击检测。
+- **开关**：设置页「首页长按改成常驻按键」，只剩一个开关。关掉后回到前台，已放进列里的按键变 GONE（不占位）；开着再回到前台变回来。
+- **局限（没编译、没上机）**：①不知道这一列是贴底还是贴顶对齐：贴底的话多一个子项是列往上长、头像不动；贴顶的话头像会被往下挤一个按键的高度；②同一页换作者时头像的 `setController` 会不会再调没验证（只在第一次绑定时放，列里已有就不动）；③直播间 / 个人页里的视频是不是也用同一个 `FeedRightScaleView` 没验证，用的话那里也有按键；④`user_avatar` 的 id 解析不到时安静失效（没有按键，长按仍被忽略——这时请关掉开关）；⑤1.38.1 的「点按键直接 `run()` 长按计时任务」局限不变。
+
 ## 1.38.1：点按键直接触发长按（无延迟）
 
 见下面 1.38.0 的「怎么弹面板」。主界面 Activity 类名 `com.ss.android.ugc.aweme.main.MainActivity` 已有 TextRec 证据（`LongPressPanelLaunchParams(context=…MainActivity@…)`）。
 
 ## 1.38.0：首页长按改成常驻按键
 
-- **做什么**：首页长按视频不再有任何反应（忽略，不弹分享给朋友、不感兴趣等面板）；首页右侧一直显示一个「面板」按键，样式和点赞 / 评论 / 分享一致（白色实心图标 + 下面一行白字），点它才弹出原来的面板。设置页分组「首页长按改成常驻按键」，一个开关 + 位置。
+- **做什么**：首页长按视频不再有任何反应（忽略，不弹分享给朋友、不感兴趣等面板）；首页右侧一直显示一个「面板」按键，样式和点赞 / 评论 / 分享一致（白色实心图标 + 下面一行白字），点它才弹出原来的面板。设置页分组「首页长按改成常驻按键」，一个开关。
 - **怎么弹面板**（1.38.1 起无延迟）：点按键时找到当前屏幕上可见面积最大的 `com.ss.android.ugc.aweme.feed.ui.LongPressLayout`，在它（及父类，不含 View）的字段里找「值是 Runnable、类里有个字段类型是 LongPressLayout 且指回这个控件」的那个长按计时任务（混淆类 `X.0tdv`，不用混淆名，有歧义就不动），置 `armed` 后直接 `run()`，同步走完抖音自己的长按流程，钩子放行这一次 `show`。依据 TextRec 40.9.0 `textrec-tasks-20261025-102152`：长按栈是 Handler → `X.0tdv.run` → `Y.AhaS2700S0100000_34.LIZ(float,float)` → `X.10du.LIZIZ/LIZJ` → `LongPressPanelServiceImpl.LJIIZILJ` → … → `show`，全同步；`X.0tdv` 在 `LongPressLayout.<init>` 里创建。找不到计时任务时退回合成长按（有延迟）。用户自己的长按 `armed` 为 false，被 `setResult(null)` 跳过。
-- **按键位置**：和视频时长一样在抖音里调，位置浮窗选「按键」（预览就是新样式）；`lpX / lpY`（dp，左 / 上，-1 = 默认在屏幕右侧、点赞列上方）。
+- **按键位置**：（1.39.0 起不再调位置，按键跟着头像走，见上面。）
 - **钩子**（`LongPressHook.java`，`lp.show`）：不变，仍是 `DialogFragment#show(FragmentManager, String)`、this 为 `LongPressPanelFragmentImpl`。
 - **局限（没编译、没上机）**：①直接 `run()` 没上机：计时任务如果还要读控件上按下时记的状态，没有真实触摸时可能什么都不做；②个人页、直播间里 `LongPressLayout` 的子类也可能被选中，没验证；③按键挂在整个主界面上，切到个人页等页面时也在；④没有定时器，只有点一次按键 postDelayed 一条「抬起」。
 

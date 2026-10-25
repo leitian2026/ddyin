@@ -3,7 +3,7 @@
 ## 功能
 1. **弹幕随机色**：每条弹幕随机颜色，保留黑色描边。
 2. **拦截点赞**：双击视频不再点赞，也不出双击红心（1.29.0 起没有「右侧爱心按钮改评论」）。1.33.1 起，找不到评论按钮的视频（没有评论、抖音改了控件）双击照常点赞，不再「既不点赞也不开评论」。
-3. **打开评论**：双击视频改为打开当前视频的评论。双击这一路只走名字没混淆的 `onDoubleTap` + `MonitorScrollFrameLayout#onInterceptTouchEvent`（+ `handleSingleClick`）；1.26.4 起去掉了混淆名的 `LLLIILIL` 兜底；1.33.1 起评论按钮按类名 `FeedCommentImageView` 在这一页里找，不再按描述文字。
+3. **打开评论**：双击视频改为打开当前视频的评论。双击这一路走名字没混淆的 `onDoubleTap` + `MonitorScrollFrameLayout#onInterceptTouchEvent`（+ `handleSingleClick`），1.35.4 起多一条 `LongPressLayout#setTapListener`（抖音自己认出双击时的监听器）补漏；1.26.4 起去掉了混淆名的 `LLLIILIL` 兜底；1.33.1 起评论按钮按类名 `FeedCommentImageView` 在这一页里找，不再按描述文字。
 4. **视频时长常显**（1.15）：自己放一行 `00:12 / 03:45`，随播放走动。1.22.0 起它是视频文案下面的一行（有发布日期地点时在它的正下方），可以调字号和颜色；1.27.0 起每个视频页自己带一个；1.28.0 起它是盖在页面上的浮层，位置全屏任意可调。
 
 5. **无操作自动退出**（1.17.8）：连续 N 分钟没有操作抖音（触摸、按键、回到前台都算操作），就结束抖音进程；后台也计时。设置页里填分钟数，0 = 关闭。
@@ -22,6 +22,24 @@
 
 ## 使用
 设置页的内容按功能折叠成一个个分组（点标题展开，展开一个其他自动收起；有总开关的分组不用展开就能开关）。前提：LSPosed 里启用模块、作用域勾选抖音、强杀抖音重开；改完点底部「保存并应用」（需要 root），抖音回到前台即生效。不推送则用默认：开启 + 鲜艳随机。
+
+## 1.35.4：双击改评论多一条入口——挂抖音自己认出双击时调的监听器（dtap.tap）
+
+- **问题**：划到下一个视频后，不到约 0.36 秒就双击，会点赞，评论打不开；等一会儿再双击就正常打开。
+- **依据**（TextRec 40.9.0，`textrec-tasks-20261024-194755`、`textrec-tasks-20261025-080951`，Xiaomi 23046RP50C / Android 14）：
+  - 划完马上双击 20 次：7 次 `onDoubleTap` 被调到，dyin 拦住，评论打开；13 次没有 `onDoubleTap`，点赞照常发生。两种情况一次都没有同时出现。
+  - 没有 `onDoubleTap` 的点赞（194755 里对了两次）：识别双击的 `GestureDetector` 的上游 `VideoPinchUtil$eventObserver$1#onChanged` 没收到第一下点击的 DOWN / UP，只收到第二下，所以认不出双击；`onDoubleTap` 被调到的那几次它每个事件都收到了。其余 11 次没有逐次对。
+  - 这 13 次点赞每次都有同一条链，四个方法在 2~4ms 内连着调完，在第二下 DOWN 之后 8~33ms：`BaseListFragmentPanel#LLJLLL → FullFeedFragmentPanel#LLJLL → BaseListFragmentPanel#LLJLL → DiggLayout#LIZJ`（混淆名，不挂，只当证据）。「只单击」「慢双击」两件事期间这条链一次都没有。
+  - 这条链上游是 `LongPressLayout.onTouchEvent → X.11Zq.onTouch（View$OnTouchListener）`，`X.11Zq` 是 `FeedLongPressLayoutPresenter.onBindSafe` 里 `LongPressLayout#setTapListener(X.11Zq)` 传进去的：每个视频页绑定时调一次（同时 `setTimeInterval(400)`，个人主页页面是 500）。`LongPressLayout#setTapListener` 类名方法名都没混淆。
+  - 划完到第一下点击的间隔：点赞的 13 次里 12 次在 260~360ms，一次 479ms；打开评论的 7 次里 6 次在 424ms 以上，一次 254ms。**是趋势，不是界限**，所以没有按时间做任何判断。
+- **新增钩子 `dtap.tap`**（`HookGuard` 编号 16，设置页「双击改评论：抖音自己认出双击时的入口」）：`com.ss.android.ugc.aweme.feed.ui.LongPressLayout#setTapListener`，只挂参数是单个 `View.OnTouchListener` 的重载（系统类型，不放宽）。回调里把传进来的监听器换成包装（`CommentHook.TapWrap`）：抖音在 `LongPressLayout` 里认出双击、调到监听器时，用 `v` 往上找这一页的 `MonitorScrollFrameLayout`，在里面取 `comment_container`（和 `dtap.cut` 同一个 `commentTarget`），找到就点它、记 `dtapAt`（让随后的单击暂停被跳过）、800ms 内只开一次、**不再调原监听器**（不点赞不出红心）；找不到（开关关着 / 不在 `MonitorScrollFrameLayout` 里 / 没有评论按钮）就原样调原监听器，照常点赞。
+- **和已有钩子的关系**：`dtap.seen` + `dtap.cut` 没动，认得出双击时照旧在拦截里拦住（第二下 DOWN 到不了 `LongPressLayout`，`dtap.tap` 不会走到）；`dtap.cut` 漏掉的那些，由 `dtap.tap` 补上。两边共用 `lastOpenAt` / `dtapAt`，不会开两次。
+- **没有新增**：定时器、轮询、时间窗口、每次触摸都进的钩子。`setTapListener` 只在页面绑定时调一次；唯一的分配是每个视频页一个包装对象（绑定时，不在触摸路径上）。`RULES_REV` 没动（没改已有钩子的规则）。
+- **没有证据的部分，装上先留意**：
+  1. 没有直接追到监听器 `onTouch` 本身（TextRec 校验不让写 `X.11Zq` 这种数字开头的类名）。「它只在双击时才被调」是从「单击期间点赞链是 0 次」推的。**如果装上后出现「单击就打开评论」，说明推断错了，把现象告诉我，要重新追踪**。
+  2. `setTapListener` 的参数类型是不是 `View.OnTouchListener` 没有记录。不是的话这个钩子会显示「未适配」，其他钩子不受影响，行为和 1.35.3 一样。
+  3. 只在 40.9.0、一台手机上看到；喜欢列表（`UltraDetailActivity`）里 `dtap.cut` 路径本来就不通（`onDoubleTap` 在拦截返回之后才被调），`dtap.tap` 在那个页面能不能用没有验证。
+  4. 没编译、没上机。
 
 ## 1.35.3：冷启动恢复次数做成设置项（默认 3，0～10）
 

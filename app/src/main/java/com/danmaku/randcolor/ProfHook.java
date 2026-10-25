@@ -1,5 +1,7 @@
 package com.danmaku.randcolor;
 
+import android.os.Bundle;
+
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Method;
 
@@ -27,6 +29,16 @@ import de.robv.android.xposed.XposedBridge;
  *  - 134024：点「我」时 onChanged(USER) 在 18420ms（耗时 497ms），我的 (99, false) 在 18907ms，之后「喜欢」页的 Fragment（FavProfileCommonTabFragment）才在 19006ms 出现。
  * 没有定时器、没有轮询、没有扫描；prof.enter 回调只在底部切页时才有（用户点一次一次），不是点击检测。
  *
+ * 1.40.5 加第三个钩子 prof.args（让抖音自己选「喜欢」，不靠上面的 setCurrentItem(99)）：
+ *  - Fragment#setArguments(Bundle)（androidx，没混淆）before：this 的类名是 MyPandaFragment（com.ss.android.ugc.aweme.profile.ui.core，没混淆，dex 里查过）才处理，
+ *    往参数 Bundle 里放 tab_type = 2。Panda.LJIIL() 读的就是这个 Fragment 的 getArguments()，抖音自己的个人页分页（PandaProfileMyPager）读到后，
+ *    默认标签流程会把它当 User.tabType 选中「喜欢」，头部和标签栏的状态跟着一起走，不会出现 99 那种「页面在喜欢、抖音以为在作品」。
+ *  - 依据 TextRec 40.9.0 textrec-tasks-20261025-184708（冷启动点「我」）：MyPandaFragment#setArguments 在 18764ms，参数 {extra_enter_method=click_tab_bar, from=from_main}；
+ *    个人页 onResume 在 19412ms，USER 回调在 19531ms——参数在页面创建之前设好，早约 650ms。冷启动先不点的那 8 秒里没有 MyPandaFragment。参数里没有 tab_type（抖音默认 0）。
+ *  - 回调：不分配对象、不反射、不打日志；Fragment 每次创建都会走到，非个人页一次字符串比较就返回。
+ *  - 局限（没编译、没上机）：服务端给账号下发了非 0 的 profileTabInfoStruct.b 时，tab_type 不会覆盖它，这时不生效（安静失效，不补救）；
+ *    只管个人页创建那一次，之后每次点「我」仍然靠 prof.enter 的切页；tab_type 的类型按 int 放，抖音读的类型不是 int 就读不到（安静失效）。
+ *
  * 局限（没编译、没上机）：
  *  - 冷启动第一次进「我」时，触发那一下分页控件的页可能还没建好，99 没有效果，个人主页停在「作品」（安静失效，不再有任何补救，也不许有兜底）。
  *  - 只处理触发时记下的那一个分页控件；还没见过分页控件时什么都不做。
@@ -42,6 +54,12 @@ final class ProfHook {
     private static final String PAGER = "com.ss.android.ugc.aweme.profile.widgets.ProfileViewPager";
     private static final String VP = "androidx.viewpager.widget.ViewPager";
     private static final String ENTER = "com.ss.android.ugc.aweme.main.MainPageFragment$2";
+    private static final String FRAGMENT = "androidx.fragment.app.Fragment";
+    /** 个人页的 Fragment（类名没混淆）；点「我」时它才被创建。 */
+    private static final String MY_PAGE = "com.ss.android.ugc.aweme.profile.ui.core.MyPandaFragment";
+    /** 个人页参数里的默认标签；抖音自己读它当 User.tabType，没有这一项时是 0（作品）。2 = 喜欢。 */
+    private static final String TAB_TYPE = "tab_type";
+    private static final int TAB_LIKE = 2;
     /** Pair.toString() 里第一项是 USER 的开头。 */
     private static final String USER_PREFIX = "(USER,";
     /** 越界页号：ViewPager 收到最后一页（= 喜欢）。 */
@@ -49,6 +67,7 @@ final class ProfHook {
 
     private static final XC_MethodHook PAGER_HOOK = new PagerHook();
     private static final XC_MethodHook ENTER_HOOK = new EnterHook();
+    private static final XC_MethodHook ARGS_HOOK = new ArgsHook();
 
     private static volatile WeakReference<Object> pagerRef;
     private static volatile Method setItem;
@@ -58,6 +77,7 @@ final class ProfHook {
         if (cl == null || !DanmakuHook.cfg.profFav) return;
         tryPager(cl);
         tryEnter(cl);
+        tryArgs(cl);
     }
 
     private static synchronized void tryPager(ClassLoader cl) {
@@ -88,6 +108,26 @@ final class ProfHook {
     private static void tryEnter(ClassLoader cl) {
         HookGuard.hook(HookGuard.PROF_ENTER, ENTER, HookGuard.named("onChanged"), ENTER_HOOK,
                 "MainPageFragment$2 里没有 onChanged（抖音改了底部标签切换的观察者，需要重新用 TextRec 追踪点底部「我」）", cl);
+    }
+
+    private static void tryArgs(ClassLoader cl) {
+        HookGuard.hook(HookGuard.PROF_ARGS, FRAGMENT, HookGuard.named("setArguments"), ARGS_HOOK,
+                "Fragment 里没有 setArguments（androidx 改了；需要重新用 TextRec 追踪点底部「我」时 MyPandaFragment 的参数）", cl);
+    }
+
+    /** 个人页创建时设参数：在 Bundle 里放 tab_type = 2，让抖音自己的默认标签流程选中「喜欢」。 */
+    private static final class ArgsHook extends XC_MethodHook {
+        @Override
+        protected void beforeHookedMethod(MethodHookParam p) {
+            try {
+                if (!DanmakuHook.cfg.profFav) return;
+                if (!MY_PAGE.equals(p.thisObject.getClass().getName())) return; // 别的 Fragment 一次字符串比较就返回
+                Object a = p.args[0];
+                if (!(a instanceof Bundle)) return;
+                ((Bundle) a).putInt(TAB_TYPE, TAB_LIKE);
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     /** 记住个人主页的分页控件（只记对象，不改任何参数）。 */

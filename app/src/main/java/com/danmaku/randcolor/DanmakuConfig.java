@@ -18,7 +18,7 @@ public final class DanmakuConfig {
     public boolean dtapToComment = false;
     /** 点底部「我」进个人主页时默认停在「喜欢」标签（最后一页）。见 ProfHook。 */
     public boolean profFav = false;
-    /** 首页长按弹出的面板改成先弹一个按键，点按键才弹面板。见 LongPressHook。 */
+    /** 首页长按弹出的面板改成长按忽略、右侧按钮列里（头像上方）放一个按键，点按键才弹面板。见 LongPressHook。 */
     public boolean lpBtn = false;
     /** 视频时长一直显示（放在发布信息那一行的下面，没显示发布信息就放在文案下面）。 */
     public boolean timeAlways = false;
@@ -59,8 +59,6 @@ public final class DanmakuConfig {
     public int barSel = 1;
     /** 发布日期地点、视频时长两个浮层在页面里的位置（左 / 上，dp，0 ～ 4000）；-1 = 默认。在抖音里用位置浮窗拖，见 VidPosPanel。 */
     public int pubX = -1, pubY = -1, timeX = -1, timeY = -1;
-    /** 长按面板的那个按键的位置（左 / 上，dp，0 ～ 4000）；-1 = 默认（屏幕下方居中）。在抖音里用位置浮窗选「按键」拖，见 VidPosPanel。 */
-    public int lpX = -1, lpY = -1;
     /** 位置调节模式（发布地 / 时长）：设置页点「去抖音里调整」时置 true，抖音里浮窗点完成 / 取消时改回 false。设置页自己存的配置里永远是 false。 */
     public boolean vidAdjust = false;
     /** 开播时间那一行的模板，见 LiveFormat。 */
@@ -106,8 +104,6 @@ public final class DanmakuConfig {
             p.setProperty("pubY", String.valueOf(pubY));
             p.setProperty("timeX", String.valueOf(timeX));
             p.setProperty("timeY", String.valueOf(timeY));
-            p.setProperty("lpX", String.valueOf(lpX));
-            p.setProperty("lpY", String.valueOf(lpY));
             p.setProperty("vidAdjust", String.valueOf(vidAdjust));
             p.setProperty("liveFormat", liveFormat == null ? LiveFormat.DEFAULT : liveFormat);
             StringBuilder sb = new StringBuilder();
@@ -135,8 +131,6 @@ public final class DanmakuConfig {
             p.setProperty("pubY", String.valueOf(pubY));
             p.setProperty("timeX", String.valueOf(timeX));
             p.setProperty("timeY", String.valueOf(timeY));
-            p.setProperty("lpX", String.valueOf(lpX));
-            p.setProperty("lpY", String.valueOf(lpY));
             ByteArrayOutputStream bo = new ByteArrayOutputStream();
             p.store(bo, null);
             return new String(bo.toByteArray(), StandardCharsets.ISO_8859_1);
@@ -152,8 +146,6 @@ public final class DanmakuConfig {
         c.pubY = parsePos(p.getProperty("pubY", String.valueOf(c.pubY)));
         c.timeX = parsePos(p.getProperty("timeX", String.valueOf(c.timeX)));
         c.timeY = parsePos(p.getProperty("timeY", String.valueOf(c.timeY)));
-        c.lpX = parsePos(p.getProperty("lpX", String.valueOf(c.lpX)));
-        c.lpY = parsePos(p.getProperty("lpY", String.valueOf(c.lpY)));
     }
 
     static void applyPos(DanmakuConfig c, File f) {
@@ -229,8 +221,6 @@ public final class DanmakuConfig {
         c.pubY = parsePos(p.getProperty("pubY", "-1"));
         c.timeX = parsePos(p.getProperty("timeX", "-1"));
         c.timeY = parsePos(p.getProperty("timeY", "-1"));
-        c.lpX = parsePos(p.getProperty("lpX", "-1"));
-        c.lpY = parsePos(p.getProperty("lpY", "-1"));
         c.vidAdjust = Boolean.parseBoolean(p.getProperty("vidAdjust", "false").trim());
         c.liveAdjust = Boolean.parseBoolean(p.getProperty("liveAdjust", "false").trim());
         String lf = p.getProperty("liveFormat", LiveFormat.DEFAULT);

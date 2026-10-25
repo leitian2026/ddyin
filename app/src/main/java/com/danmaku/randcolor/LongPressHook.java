@@ -51,14 +51,17 @@ import de.robv.android.xposed.XposedBridge;
  *     点按键触发的那一次（armed）放行；用户自己的长按 setResult(null) 忽略。按键这条路没通（lp.col / lp.lay 没挂上）时不拦，长按照常弹面板。
  *  2. lp.lay = LongPressLayout 的所有构造方法，after：只给 this 的类正好是 LongPressLayout 的控件挂一个单例的 OnAttachStateChangeListener。
  *     控件挂到窗口时，往上找最近的 MonitorScrollFrameLayout（类名比较，最多 10 层），登记「这一页的 #w1m → 这个 LongPressLayout（弱引用）」。
- *     第一次登记时认出「长按计时任务」是它的哪个字段（见 resolveTimer，整个进程只认一次），认不出唯一的一个就把 lp.lay 记成未适配。
+ *     第一次登记时按名字 longPressRunnable 取「长按计时任务」字段（见 resolveTimer，整个进程只取一次，不遍历），取不到就把 lp.lay 记成未适配。
  *  3. lp.col = DraweeView#setController，after：把按键放进头像所在的那一项前面（一页一次）。
  *  点按键：从按键往上找最近的 MonitorScrollFrameLayout，取一次 Map 得到这一页的 LongPressLayout，读它的计时任务字段，armed = true，run()，
  *  钩子放行这一次 show。没有触摸、没有计时、没有遍历视图树、没有记视频数据。这一页没登记过 / 字段没认出来：什么都不做，没有任何退路。
  *
  * 局限（没编译、没上机）：
- *  - 直接 run() 计时任务没有真实触摸：如果计时任务（或它往下的 Y.AhaS2700S0100000_34.LIZ(float, float)）还要读控件上按下时记的坐标 / 状态，
- *    没有触摸时可能什么都不做，或者坐标是 0。（1.38.x / 1.39.x 就是这样触发的。）TextRec 没展开过这两个对象的字段。
+ *  - 没触摸的页直接 run() 弹不出面板（TextRec 1.32.1 textrec-tasks-20261025-235515：没触摸时 run() 执行了但 Y.AhaS2700S0100000_34.LIZ 没被调用；
+ *    单击后 LIZ(1030.0, 1743.0) 的参数 = 这一页最近一次 DOWN 的落点）。X.0tdv.run 的 smali（40.9.0 classes25.dex）读出：它在
+ *    enableLongClick、listener、longPressEnable 之外，把 lastX/lastY（有一道按 X.017g.LIZ() 换成 lastRawX/lastRawY）交给三四个拦截监听器，
+ *    没触摸时这几个字段是 0。1.40.4 起 fire() 先把这 4 个字段写成这一页长按层的正中间再 run()。哪个监听器收 (0, 0) 会拦、收中间不拦，没人看过，
+ *    所以中间点管不管用要上机验证；不管用也不会有任何退路。
  *  - 登记发生在 LongPressLayout 挂到窗口的那一刻：钩子装上之前就已经挂好的页（冷启动时当前页常见）不会登记，划一下换页或重开抖音才有。
  *  - LongPressLayout 有几个构造方法互相调用，监听器可能被加了好几次：每次挂窗口多登记几次同一个值，没有副作用。
  *  - 只在 40.9.0 一台手机上验证过结构；类名没混淆，但层级变了（最近的 MonitorScrollFrameLayout 不再同时是两者的祖先）会安静失效。
@@ -100,6 +103,8 @@ final class LongPressHook {
     private static final WeakHashMap<View, WeakReference<View>> PAGES = new WeakHashMap<>();
     /** LongPressLayout 里「长按计时任务」那个字段；timerState：0 = 还没认，1 = 认出了，2 = 认不出（已记成未适配）。主线程读写。 */
     private static volatile Field timerField;
+    /** 长按计时任务 run() 里读的 4 个落点字段（float，按名字取，和 timerField 一起认；主线程读写）。 */
+    private static Field fLastX, fLastY, fLastRawX, fLastRawY;
     private static int timerState;
 
     /** 启动时和每次回到前台都会被调用；功能没开就不挂（没有结论，开了之后回到前台再挂）。 */
@@ -231,7 +236,7 @@ final class LongPressHook {
             try {
                 if (!DanmakuHook.cfg.lpBtn) return;
                 if (Looper.myLooper() != Looper.getMainLooper()) return;
-                if (!resolveTimer(v)) return;
+                if (!resolveTimer()) return;
                 View page = pageOf(v);
                 if (page == null) return;
                 PAGES.put(page, new WeakReference<View>(v));
@@ -256,57 +261,55 @@ final class LongPressHook {
         return null;
     }
 
+    /** LongPressLayout 里存「长按计时任务」的字段名（没混淆）。依据 TextRec 40.9.0 textrec-tasks-20261025-235515 数据树：`this.a.longPressRunnable` 的值就是 X.0tdv（指回 this.a）。 */
+    private static final String TIMER_NAME = "longPressRunnable";
+
     /**
-     * 第一次拿到 LongPressLayout 实例时，认出「长按计时任务」是它的哪个字段（整个进程只做一次，之后直接读缓存的 Field）。
-     * 依据 TextRec：X.0tdv 在 LongPressLayout 构造里创建，字段只有指回控件的 LongPressLayout 和插桩字段。
-     * 认法：LongPressLayout（及抖音自己的父类，不含 android.* 的）的实例字段里，值是 Runnable、并且它的类里有一个字段类型是 LongPressLayout、值正好是这个控件。
-     * 只有一个才认；0 个或多个 = 抖音改了，记成未适配，什么都不登记。
+     * 第一次拿到 LongPressLayout 实例时，按名字取「长按计时任务」字段和 run() 读的 4 个落点字段（整个进程只做一次，之后直接读缓存的 Field）。
+     * 只按名字查（LongPressLayout 起往上到系统类为止，每层 getDeclaredField 一次），不遍历字段、不看字段的值；
+     * 任何一个查不到、或类型不对、或是静态字段，就把 lp.lay 记成未适配，什么都不登记。
+     * 4 个落点字段的依据：X.0tdv.run 的 smali（40.9.0 classes25.dex）读 lastX / lastY / lastRawX / lastRawY（float），见 fire()。
      */
-    private static boolean resolveTimer(View lay) {
+    private static boolean resolveTimer() {
         if (timerState == 1) return true;
         if (timerState == 2) return false;
-        Field found = null;
-        int n = 0;
+        Field timer = null, lx = null, ly = null, lrx = null, lry = null;
         try {
-            for (Class<?> c = lay.getClass(); c != null && !c.getName().startsWith("android.") && c != Object.class; c = c.getSuperclass()) {
-                for (Field f : c.getDeclaredFields()) {
-                    if (Modifier.isStatic(f.getModifiers()) || f.getType().isPrimitive()) continue;
-                    try {
-                        f.setAccessible(true);
-                        Object v = f.get(lay);
-                        if (!(v instanceof Runnable) || !pointsBack(v, lay)) continue;
-                        found = f;
-                        n++;
-                    } catch (Throwable ignored) {
-                    }
-                }
-            }
-        } catch (Throwable ignored) {
-            n = -1;
+            timer = byName(TIMER_NAME, Runnable.class);
+            lx = byName("lastX", float.class);
+            ly = byName("lastY", float.class);
+            lrx = byName("lastRawX", float.class);
+            lry = byName("lastRawY", float.class);
+        } catch (Throwable t) {
+            timer = null;
         }
-        if (n == 1) {
-            timerField = found;
+        if (timer != null && lx != null && ly != null && lrx != null && lry != null) {
+            fLastX = lx;
+            fLastY = ly;
+            fLastRawX = lrx;
+            fLastRawY = lry;
+            timerField = timer;
             timerState = 1;
             return true;
         }
         timerState = 2;
-        HookGuard.miss(HookGuard.LP_LAY, "LongPressLayout 里认不出唯一的长按计时任务字段（找到 " + n + " 个；抖音改了，需要重新用 TextRec 追踪 LongPressLayout 构造里创建的 Runnable）");
+        HookGuard.miss(HookGuard.LP_LAY, "LongPressLayout 里没有名为 " + TIMER_NAME + " 的 Runnable 字段，或没有 float 字段 lastX / lastY / lastRawX / lastRawY（抖音改了，需要重新用 TextRec 追踪 LongPressLayout 的长按计时任务）");
         return false;
     }
 
-    /** r 的类里有一个字段，类型是 LongPressLayout，值就是 lay。 */
-    private static boolean pointsBack(Object r, View lay) {
-        for (Class<?> c = r.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
-            for (Field g : c.getDeclaredFields()) {
-                if (Modifier.isStatic(g.getModifiers()) || g.getType() != layCls) continue;
-                try {
-                    g.setAccessible(true);
-                    if (g.get(r) == lay) return true;
-                } catch (Throwable ignored) {
-                }
+    /** 从 LongPressLayout 起往上（到系统类为止）按名字取一个非静态实例字段；类型不对或没有返回 null。 */
+    private static Field byName(String name, Class<?> type) throws Throwable {
+        Field found = null;
+        for (Class<?> c = layCls; c != null && !c.getName().startsWith("android.") && c != Object.class && found == null; c = c.getSuperclass()) {
+            try {
+                found = c.getDeclaredField(name);
+            } catch (NoSuchFieldException ignored) { // 这一层没有，往父类找同名字段
             }
         }
-        return false;
+        if (found == null || Modifier.isStatic(found.getModifiers())) return null;
+        if (type == float.class ? found.getType() != float.class : !type.isAssignableFrom(found.getType())) return null;
+        found.setAccessible(true);
+        return found;
     }
 
     // ------------------------------------------------------------ 按键放进右侧按钮列
@@ -394,6 +397,21 @@ final class LongPressHook {
             return;
         }
         if (!(r instanceof Runnable)) return;
+        // run() 里的关口都看落点：mHighPriorityLongPressIntercept / mInterceptListener / mLongPressFastSpeedListener 收 (lastX, lastY)，
+        // mLongPressSeekBarListener 按 X.017g.LIZ() 收 (lastX, lastY) 或 (lastRawX, lastRawY)；最后 listener.LIZ(lastX, lastY) 才是弹面板。
+        // 没触摸的页这 4 个字段是 0（TextRec 实测），落点 (0, 0) 可能过不了关口，所以先把落点写成这一页长按层的正中间（和真实 DOWN 同一种坐标：
+        // lastX/lastY 是控件内坐标，lastRawX/lastRawY 是屏幕坐标），再 run()。其它字段（mDownTime、mHasTouchEvent、curX/curY、mTapListener 里的）run() 不读，不写。
+        try {
+            float cx = lay.getWidth() / 2f, cy = lay.getHeight() / 2f;
+            int[] loc = new int[2];
+            lay.getLocationOnScreen(loc);
+            fLastX.setFloat(lay, cx);
+            fLastY.setFloat(lay, cy);
+            fLastRawX.setFloat(lay, loc[0] + cx);
+            fLastRawY.setFloat(lay, loc[1] + cy);
+        } catch (Throwable t) {
+            return;
+        }
         armed = true;
         try {
             ((Runnable) r).run();

@@ -810,6 +810,7 @@ public class MainActivity extends Activity {
             {"prof.enter", "我的主页默认喜欢：点底部「我」时切到喜欢（MainPageFragment$2#onChanged）"},
             {"lp.show", "首页长按改成常驻按键：拦住长按面板的弹出（DialogFragment#show）"},
             {"lp.col", "首页长按改成常驻按键：把按键放进右侧按钮列、头像上方（DraweeView#setController）"},
+            {"lp.lay", "首页长按改成常驻按键：每页的长按计时任务在挂到窗口时登记（LongPressLayout 构造方法 + 挂载监听），点按键不扫描"},
     };
 
     /** 用 root 读抖音数据目录里的 hooks.properties（抖音进程自己写的），列出每个钩子的状态。 */

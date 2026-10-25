@@ -8,8 +8,8 @@ android {
         applicationId 'com.danmaku.randcolor'
         minSdk 27
         targetSdk 34
-        versionCode 108
-        versionName '1.40.0'
+        versionCode 109
+        versionName '1.40.1'
     }
 
     signingConfigs {

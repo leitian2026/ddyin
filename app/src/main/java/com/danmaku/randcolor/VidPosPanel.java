@@ -15,9 +15,10 @@ import android.widget.TextView;
 import java.lang.ref.WeakReference;
 
 /**
- * 发布日期地点、视频时长两个浮层的「位置浮窗」：设置页点「去抖音里调整」→ 配置里 vidAdjust = true → 抖音回到前台时
+ * 发布日期地点、视频时长两个浮层、长按面板的「按键」的「位置浮窗」：设置页点「去抖音里调整」→ 配置里 vidAdjust = true → 抖音回到前台时
  * PubHook.onResume 把当前 Activity 交给 {@link #show}：在窗口最上层盖一层半透明触摸层 + 一个小浮窗。
- *  - 浮窗里先选「发布地」或「时长」，再在屏幕任意位置按住拖动：所选的浮层的左上角跟着手指走（全屏任意位置，单位 dp，水平竖直都能调）；
+ *  - 浮窗里先选「发布地」、「时长」或「按键」，再在屏幕任意位置按住拖动：所选的浮层的左上角跟着手指走（全屏任意位置，单位 dp，水平竖直都能调）；
+ *    选「按键」时屏幕上会出现长按面板那个按键的样子（预览，不用先长按），拖它；
  *  - ◀ ▶ ▲ ▼ 微调 1 dp，「归零」回默认位置，「取消」回到打开时的位置，「完成」保存；浮窗标题可以拖。
  * 完成 / 取消把 vidAdjust 改回 false 并写回抖音自己的配置文件；设置页回到前台时用 root 读回新位置。
  * 不是钩子，没有定时器；触摸层只在调节模式里存在。对应的开关（发布日期地点 / 视频时长）要先打开，浮层才看得到。
@@ -26,9 +27,9 @@ final class VidPosPanel {
     private VidPosPanel() {}
 
     private static WeakReference<FrameLayout> layerRef;
-    private static TextView tvPos, btnPub, btnTime;
-    private static int target; // 0 = 发布地  1 = 时长
-    private static int[] o = new int[4]; // 打开时的 pubX, pubY, timeX, timeY（「取消」回到这里）
+    private static TextView tvPos, btnPub, btnTime, btnLp, prev;
+    private static int target; // 0 = 发布地  1 = 时长  2 = 按键
+    private static int[] o = new int[6]; // 打开时的 pubX, pubY, timeX, timeY, lpX, lpY（「取消」回到这里）
     private static boolean opened;
     private static float downX, downY, startX, startY;
     private static float pdX, pdY, ptX, ptY;
@@ -47,7 +48,7 @@ final class VidPosPanel {
         detach();
         if (!opened) {
             DanmakuConfig c = DanmakuHook.cfg;
-            o = new int[]{c.pubX, c.pubY, c.timeX, c.timeY};
+            o = new int[]{c.pubX, c.pubY, c.timeX, c.timeY, c.lpX, c.lpY};
             opened = true;
         }
         layer = build(decor.getContext());
@@ -73,8 +74,13 @@ final class VidPosPanel {
     /** 所选浮层现在的位置（dp）：配置里是 -1（默认）时取屏幕上它现在的位置，没有就 0。 */
     private static int get(boolean x) {
         DanmakuConfig c = DanmakuHook.cfg;
-        int v = target == 0 ? (x ? c.pubX : c.pubY) : (x ? c.timeX : c.timeY);
+        int v = target == 0 ? (x ? c.pubX : c.pubY) : target == 1 ? (x ? c.timeX : c.timeY) : (x ? c.lpX : c.lpY);
         if (v >= 0) return v;
+        if (target == 2) { // 按键默认位置：取预览现在在屏幕上的位置（还没布局就 0）
+            View pv = prev;
+            if (pv == null || pv.getWidth() == 0) return 0;
+            return Math.round((x ? pv.getLeft() : pv.getTop()) / pv.getResources().getDisplayMetrics().density);
+        }
         float[] p = PubHook.shownPos(target == 0);
         return p == null ? 0 : Math.round(x ? p[0] : p[1]);
     }
@@ -86,15 +92,27 @@ final class VidPosPanel {
         if (target == 0) {
             c.pubX = vx;
             c.pubY = vy;
-        } else {
+        } else if (target == 1) {
             c.timeX = vx;
             c.timeY = vy;
+        } else {
+            c.lpX = vx;
+            c.lpY = vy;
         }
     }
 
     private static void changed() {
         PubHook.reapplyPositions();
+        movePreview();
         refresh();
+    }
+
+    /** 按键预览跟着配置里的位置走（只在位置调节模式里，拖动时才调到）。 */
+    private static void movePreview() {
+        View pv = prev;
+        if (pv == null) return;
+        DanmakuConfig c = DanmakuHook.cfg;
+        pv.setLayoutParams(LongPressHook.place(pv.getContext(), c.lpX, c.lpY));
     }
 
     private static void finish(boolean keep) {
@@ -104,6 +122,8 @@ final class VidPosPanel {
             c.pubY = o[1];
             c.timeX = o[2];
             c.timeY = o[3];
+            c.lpX = o[4];
+            c.lpY = o[5];
         }
         c.vidAdjust = false;
         DanmakuHook.saveCfg();
@@ -121,9 +141,12 @@ final class VidPosPanel {
         if (target == 0) {
             c.pubX = -1;
             c.pubY = -1;
-        } else {
+        } else if (target == 1) {
             c.timeX = -1;
             c.timeY = -1;
+        } else {
+            c.lpX = -1;
+            c.lpY = -1;
         }
         changed();
     }
@@ -136,12 +159,14 @@ final class VidPosPanel {
     private static void refresh() {
         if (tvPos != null) {
             DanmakuConfig c = DanmakuHook.cfg;
-            boolean def = target == 0 ? c.pubX < 0 : c.timeX < 0;
-            String s = (target == 0 ? "发布地" : "时长") + (def ? "  默认位置" : "  左 " + get(true) + " / 上 " + get(false) + " dp");
+            boolean def = target == 0 ? c.pubX < 0 : target == 1 ? c.timeX < 0 : c.lpX < 0;
+            String s = (target == 0 ? "发布地" : target == 1 ? "时长" : "按键") + (def ? "  默认位置" : "  左 " + get(true) + " / 上 " + get(false) + " dp");
             if (!s.contentEquals(tvPos.getText())) tvPos.setText(s);
         }
         paint(btnPub, target == 0);
         paint(btnTime, target == 1);
+        paint(btnLp, target == 2);
+        if (prev != null) prev.setVisibility(target == 2 ? View.VISIBLE : View.GONE);
     }
 
     private static void paint(TextView b, boolean on) {
@@ -178,6 +203,10 @@ final class VidPosPanel {
         layer.setBackgroundColor(0x2E000000);
         layer.setClickable(true);
         layer.setOnTouchListener(DRAG);
+
+        prev = LongPressHook.makeButton(ctx); // 长按面板按键的预览：选「按键」时才显示，在浮窗下面
+        DanmakuConfig pc = DanmakuHook.cfg;
+        layer.addView(prev, LongPressHook.place(ctx, pc.lpX, pc.lpY));
 
         final LinearLayout panel = new LinearLayout(ctx);
         panel.setOrientation(LinearLayout.VERTICAL);
@@ -220,15 +249,21 @@ final class VidPosPanel {
                 pick(1);
             }
         });
+        btnLp = button(ctx, "按键", BTN, new Runnable() {
+            public void run() {
+                pick(2);
+            }
+        });
         tg.addView(btnPub, lp(ctx, false));
         tg.addView(btnTime, lp(ctx, true));
+        tg.addView(btnLp, lp(ctx, true));
         panel.addView(tg, new LinearLayout.LayoutParams(-1, -2));
 
         TextView pos = label(ctx, "", 15, 0xFFFFFFFF, true);
         pos.setPadding(0, dp(ctx, 8), 0, 0);
         tvPos = pos;
         panel.addView(pos);
-        TextView hint = label(ctx, "选好上面的一项，在屏幕上任意拖动", 12, 0xFF9AA1B2, false);
+        TextView hint = label(ctx, "选好上面的一项，在屏幕上任意拖动（「按键」是首页长按弹出的那个按键）", 12, 0xFF9AA1B2, false);
         hint.setPadding(0, dp(ctx, 2), 0, dp(ctx, 8));
         panel.addView(hint);
 

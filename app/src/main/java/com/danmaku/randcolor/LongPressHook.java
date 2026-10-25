@@ -4,7 +4,6 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
-import android.graphics.Rect;
 import android.graphics.RectF;
 import android.os.Looper;
 import android.view.Gravity;
@@ -15,8 +14,10 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import java.lang.ref.WeakReference;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 
 import de.robv.android.xposed.XC_MethodHook;
@@ -52,14 +53,23 @@ import de.robv.android.xposed.XposedBridge;
  *  2. lp.col = DraweeView#setController，after：this 的类就是 SmartAvatarBorderView 且 id 是 user_avatar，才往上找 FeedRightScaleView，
  *     列里还没有我们的按键就 addView 到头像那一项前面（一页一次）。别的 Drawee 控件一次类比较就放行（这个方法每张图都会调到）。
  *     开关 lpBtn 关着、lp.show 没挂上、不在主线程都不放。回到前台（onResume）时按开关把已放的按键显示 / 隐藏（GONE，不占位）。
- *  3. 点按键：armed = true，直接跑当前视频那个 LongPressLayout 里长按计时任务（Runnable）的 run()，没有延迟。
- *     依据（TextRec 40.9.0，textrec-tasks-20261025-102152）：长按时栈是 Handler → X.0tdv.run → Y.AhaS2700S0100000_34.LIZ(float, float)
+ *  3. lp.lay = LongPressLayout 的构造方法（没混淆的 View 类，所有重载），after（1.39.3 起，1.39.4 改）：给这个控件挂一个单例的 OnAttachStateChangeListener；
+ *     控件挂到窗口时（预加载页挂载时）登记「这一页的页面根 → 这一页的长按计时任务」，点按键时不扫描。
+ *     依据（TextRec 40.9.0，textrec-tasks-20261025-102152，见 README 1.38.0）：长按时栈是 Handler → X.0tdv.run → Y.AhaS2700S0100000_34.LIZ(float, float)
  *     → X.10du.LIZIZ / LIZJ → LongPressPanelServiceImpl.LJIIZILJ → … → DialogFragment#show，全是同一个栈、同步；X.0tdv 在
- *     LongPressLayout.<init> 里创建，字段只有 LongPressLayout（指回控件）和 bytex 插桩字段。混淆名一律不用，用没混淆的类型找
- *     （见 findLongPressRunnable）。钩子放行这一次 show = 弹出当前视频原来的面板，面板内容 / 后续逻辑一点没改。
- *     不许有任何兜底：找不到计时任务（类型对不上 / 有歧义）或 run() 没弹出面板，就什么都不做（1.39.1 起没有「合成长按」退路了）。
- * 没有轮询、没有定时器；两个钩子的回调只在弹面板 / 绑头像时才走到实处；点按键时遍历一次视图树找 LongPressLayout（用户点一次一次）。
-回调里只有第一次认头像时按资源名解析一次 id（getIdentifier，一次性），放按键时 new 一个 View（一页一次）。
+ *     LongPressLayout.<init> 里创建，字段只有 LongPressLayout（指回控件）和 bytex 插桩字段。混淆名一律不用：第一次登记时，在 LongPressLayout（及父类，
+ *     不含 View）的字段里找「值是 Runnable、它的类里有一个字段类型是 LongPressLayout 且指回这个控件」的那个，只有一个才认（Field 缓存，之后每页一次 Field.get）；
+ *     有歧义就 miss（lp.lay 记成未适配）、一个都不登记。
+ *     页面根 = com.ss.android.ugc.aweme.ad.feed.VideoViewHolderRootView（RTViewPager 的直接子控件，每页一个，类名没混淆；TextRec 视图树里
+ *     「FeedRightScaleView 在 MonitorScrollFrameLayout 里、MonitorScrollFrameLayout 在 VideoViewHolderRootView 里」）。按键和 LongPressLayout 各自往上找这个页面根（最多 16 层、按类名）作为同一页的凭据。
+ *  4. 点按键：armed = true，直接 run() 按键自己这一页的计时任务，没有延迟、没有任何搜索：不遍历视图树、不反射、不在列表里挑——一次 Map 取值。
+ *     钩子放行这一次 show = 弹出这一页视频原来的面板，面板内容 / 后续逻辑一点没改。
+ *     不许有任何兜底：这一页没登记 / 计时任务已被回收 / run() 没弹出面板，就什么都不做（1.39.1 起没有「合成长按」退路了）。
+ *  5. 拦截长按（lp.show）只在点按键这条路通着时才做：lp.col（按键放得进去）和 lp.lay（拿得到计时任务、至少登记过一页）都有结论是可用，才忽略用户的长按；
+ *     否则长按照常弹面板（1.39.3 起；之前 lp.col 没挂上也会忽略长按，又没有按键可点）。
+ * 没有轮询、没有定时器；lp.show 的回调只在弹面板时才走到实处；lp.col 的回调每张图都进（一次类比较就放行）；
+ * lp.lay 的回调只在构造一个 LongPressLayout 时走到（每个视频页一次，翻页复用的页不再构造）：挂一个单例监听；监听在控件挂到窗口时登记一次（第一次解析字段是一次性反射，之后一个 Field.get + 最多 16 层往上找页面根）；
+ * 这是「每页一次」的事，不是每次触摸，也不是点按键时。回调里只有第一次认头像时按资源名解析一次 id（getIdentifier，一次性），放按键时 new 一个 View（一页一次）。
  *
  * 局限（没编译、没上机）：
  *  - 只在 40.9.0 一台手机上验证过钩点；类名 / 重载变了会安静失效（长按照常弹面板，或没有按键），设置页「钩子状态」里 lp.show / lp.col 会显示未适配。
@@ -67,7 +77,10 @@ import de.robv.android.xposed.XposedBridge;
  *  - 没验证：同一页里头像换作者时 setController 会不会再调（只在第一次绑定时放，之后列里已经有按键就不动）。
  *  - 没验证：直播间 / 个人页里的视频是不是也用同一个 FeedRightScaleView；用的话那里也会有按键。
  *  - 直接 run() 没有上机验证：计时任务的 run() 如果还要读控件上「按下时记的状态」（按下位置、是否按着），没有真实触摸时可能什么都不做，点按键弹不出面板。
- *  - 同时有多个 LongPressLayout 时按「屏幕上可见面积最大」选；个人页、直播间里的子类也会被选中，它们的长按是不是同一个面板没验证。
+ *  - 没验证：LongPressLayout 是不是在页面根（VideoViewHolderRootView）里面。只有「每页一个（视图树里 LongPressLayout 被加了 3 次，对应常驻 3 页）」这一条旁证；
+ *    如果它不在页面根里，往上找不到页面根，这一页就不登记，lp.lay 不会记成未适配，只是点按键没反应（长按仍照常弹——一页都没登记时不拦截；有别的页登记过就会拦）。
+ *  - 登记靠 LongPressLayout 的构造方法 + 挂到窗口监听：开关第一次打开（或模块第一次装上）之前就已经建好的页没挂监听，不会登记，要强杀抖音重开才生效。
+ *  - 个人页、直播间里 LongPressLayout 的子类也会挂监听；它们不在 VideoViewHolderRootView 里时往上找不到，不登记。
  *  - 跳过 show 后抖音自己有没有「面板正在显示」之类的状态没追踪过。
  */
 final class LongPressHook {
@@ -102,6 +115,7 @@ final class LongPressHook {
         if (cl == null || !DanmakuHook.cfg.lpBtn) return;
         tryShow(cl);
         tryCol(cl);
+        tryLay(cl);
     }
 
     private static void tryShow(ClassLoader cl) {
@@ -168,6 +182,8 @@ final class LongPressHook {
                     armed = false;
                     return;
                 }
+                // 点按键这条路没通（按键放不进去 / 拿不到计时任务）：长按照常弹出，不改抖音原来的行为
+                if (!anyTimer || !HookGuard.isOk(HookGuard.LP_COL) || !HookGuard.isOk(HookGuard.LP_LAY)) return;
                 p.setResult(null);                                    // 用户自己长按：忽略
             } catch (Throwable ignored) {
             }
@@ -222,7 +238,10 @@ final class LongPressHook {
             if (col.getChildAt(i) instanceof PanelBtn) return;                // 这一页已经有了
         }
         if (!HookGuard.isOk(HookGuard.LP_SHOW)) return;                      // 拦截没挂上，放按键没有意义
+        View root = pageRoot(col);                                           // 这一页的页面根：点按键时用它直接取这一页的计时任务
+        if (root == null) return;
         PanelBtn b = new PanelBtn(col.getContext());
+        b.page = new WeakReference<View>(root);
         b.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -240,15 +259,21 @@ final class LongPressHook {
     }
 
     /**
-     * 点按键：放行下一次面板 show，然后直接跑当前视频那个 LongPressLayout 里的「长按计时任务」（Runnable）的 run()，
-     * 同步走完抖音自己的长按流程，没有延迟。
-     * 不许有任何兜底（用户明确要求）：找不到控件 / 找不到计时任务 / 有歧义 / run() 没弹出面板，都什么都不做，不发合成触摸、不换别的办法。
+     * 点按键：放行下一次面板 show，直接跑「这一页」的长按计时任务（Runnable）的 run()，没有延迟。
+     * 点按键时没有任何搜索：不遍历视图树、不反射、不在列表里挑——按键在放进列的那一刻就记下了自己这一页的页面根，
+     * 页面根 → 计时任务 是 lp.lay 在这一页的 LongPressLayout 挂到窗口时直接登记的，这里只是一次 Map 取值。
+     * 不许有任何兜底（用户明确要求）：这一页没登记 / 计时任务已被回收 / run() 没弹出面板，都什么都不做，不发合成触摸、不换别的办法。
      */
     private static void fire(View b) {
-        View top = b.getRootView();
-        if (top == null || !b.isAttachedToWindow()) return;
-        View lv = pickLayout(top);
-        Runnable r = lv == null ? null : findLongPressRunnable(lv);
+        if (!(b instanceof PanelBtn) || !b.isAttachedToWindow()) return;
+        WeakReference<View> w = ((PanelBtn) b).page;
+        View root = w == null ? null : w.get();
+        if (root == null) return;
+        Runnable r;
+        synchronized (PAGES) {
+            WeakReference<Runnable> t = PAGES.get(root);
+            r = t == null ? null : t.get();
+        }
         if (r == null) return;
         armed = true;
         try {
@@ -259,56 +284,120 @@ final class LongPressHook {
         }
     }
 
-    /**
-     * 当前屏幕上的 LongPressLayout（可见面积最大的一个）里的长按计时任务。
-     * 依据（TextRec 40.9.0，textrec-tasks-20261025-102152）：X.0tdv 实现 Runnable，在 LongPressLayout.&lt;init&gt; 里创建，
-     * 字段只有 LongPressLayout（指回控件）和 bytex 的两个插桩字段；它的 run() 同步调到长按回调（x, y）→ 面板的 show，栈里没有别的异步。
-     * 混淆名一律不用：在控件（及父类，不含 View）的字段里找「值是 Runnable、它的类里有一个字段类型是 LongPressLayout 且指回这个控件」的，
-     * 找到不止一个（有歧义）或一个都没有就返回 null。
-     */
-    private static View pickLayout(View root) {
+    // ------------------------------------------------------------ 挂到窗口时登记这一页的长按计时任务（lp.lay）
+
+    /** 页面根（RTViewPager 的直接子控件，每页一个，类名没混淆；依据见 PubHook 头部注释和 TextRec 视图树）→ 这一页的长按计时任务（弱引用）。预加载页可能在别的线程构造 / 挂载，所以访问都要加锁。 */
+    private static final java.util.WeakHashMap<View, WeakReference<Runnable>> PAGES = new java.util.WeakHashMap<>();
+    private static final String ROOT = "com.ss.android.ugc.aweme.ad.feed.VideoViewHolderRootView";
+    /** lp.lay 认的类（先赋值再挂钩）；计时任务字段（第一次解析后缓存）；解析有歧义 = 失败；至少登记过一页。 */
+    private static volatile Class<?> layCls;
+    private static volatile Field timerField;
+    private static volatile boolean timerFailed, anyTimer;
+
+    private static void tryLay(ClassLoader cl) {
+        if (HookGuard.settled(HookGuard.LP_LAY)) return;
+        Class<?> c = HookGuard.find(HookGuard.LP_LAY, LP_LAYOUT, cl);
+        if (c == null) return;
+        layCls = c;
+        int n = 0;
         try {
-            View[] best = new View[1];
-            int[] area = new int[1];
-            scan(root, best, area, new Rect());
-            return best[0];
-        } catch (Throwable t) {
-            return null;
+            for (Constructor<?> k : c.getDeclaredConstructors()) {
+                try {
+                    XposedBridge.hookMethod(k, LAY_HOOK);
+                    n++;
+                } catch (Throwable ignored) {
+                }
+            }
+        } catch (Throwable t) { // 构造方法签名里引用的类还没就绪
+            HookGuard.waitFail(HookGuard.LP_LAY);
+            return;
+        }
+        if (n > 0) HookGuard.ok(HookGuard.LP_LAY, "");
+        else HookGuard.miss(HookGuard.LP_LAY, "LongPressLayout 里没有可挂的构造方法（抖音改了，需要重新用 TextRec 追踪长按计时任务的创建）");
+    }
+
+    /** 构造完：给这个控件挂一个「挂到窗口时登记」的监听（单例，不分配）；不需要 LongPressLayout 自己覆写 onAttachedToWindow。 */
+    private static final class LayHook extends XC_MethodHook {
+        @Override
+        protected void afterHookedMethod(MethodHookParam p) {
+            try {
+                Class<?> lc = layCls;
+                Object t = p.thisObject;
+                if (lc == null || timerFailed || !(t instanceof View) || !lc.isInstance(t)) return;
+                if (!DanmakuHook.cfg.lpBtn) return;
+                ((View) t).addOnAttachStateChangeListener(ATTACH);
+            } catch (Throwable ignored) {
+            }
         }
     }
 
-    private static Runnable findLongPressRunnable(View v) {
-        try {
-            Class<?> base = null;
-            for (Class<?> c = v.getClass(); c != null && c != View.class; c = c.getSuperclass()) {
-                if (LP_LAYOUT.equals(c.getName())) {
-                    base = c;
-                    break;
+    private static final XC_MethodHook LAY_HOOK = new LayHook();
+
+    private static final View.OnAttachStateChangeListener ATTACH = new View.OnAttachStateChangeListener() {
+        @Override
+        public void onViewAttachedToWindow(View v) {
+            try {
+                Class<?> lc = layCls;
+                if (lc == null || timerFailed || !DanmakuHook.cfg.lpBtn) return;
+                Field f = timerField;
+                if (f == null) {
+                    f = resolveTimer(v, lc); // 第一次：在字段里找计时任务（一次性）
+                    if (f == null) return;
+                    timerField = f;
                 }
-            }
-            if (base == null) return null;
-            Runnable found = null;
-            for (Class<?> c = v.getClass(); c != null && c != View.class; c = c.getSuperclass()) {
-                for (Field f : c.getDeclaredFields()) {
-                    if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
-                    f.setAccessible(true);
-                    Object o = f.get(v);
-                    if (!(o instanceof Runnable) || o == found) continue;
-                    if (!pointsBack(o, base, v)) continue;
-                    if (found != null) return null; // 有歧义：一个都不动
-                    found = (Runnable) o;
+                Object o = f.get(v);
+                View root = pageRoot(v);
+                if (!(o instanceof Runnable) || root == null) return;
+                synchronized (PAGES) {
+                    PAGES.put(root, new WeakReference<Runnable>((Runnable) o));
                 }
+                anyTimer = true;
+            } catch (Throwable ignored) {
             }
-            return found;
-        } catch (Throwable t) {
-            return null;
         }
+
+        @Override
+        public void onViewDetachedFromWindow(View v) {
+        }
+    };
+
+    /** 往上找页面根（最多 16 层，按类名；没有就 null）。 */
+    private static View pageRoot(View v) {
+        for (int i = 0; i < 16 && v != null; i++) {
+            if (ROOT.equals(v.getClass().getName())) return v;
+            ViewParent q = v.getParent();
+            v = q instanceof View ? (View) q : null;
+        }
+        return null;
+    }
+
+    /**
+     * 在 LongPressLayout（及父类，不含 View）的字段里找长按计时任务：值是 Runnable、它的类里有一个字段类型是 LongPressLayout 且指回这个控件。
+     * 只有一个才返回；没有返回 null（这一次不登记）；有两个以上 = 有歧义，记成未适配、以后一个都不记。
+     */
+    private static Field resolveTimer(View v, Class<?> base) throws Exception {
+        Field found = null;
+        for (Class<?> c = base; c != null && c != View.class; c = c.getSuperclass()) {
+            for (Field f : c.getDeclaredFields()) {
+                if (Modifier.isStatic(f.getModifiers())) continue;
+                f.setAccessible(true);
+                Object o = f.get(v);
+                if (!(o instanceof Runnable) || !pointsBack(o, base, v)) continue;
+                if (found != null) {
+                    timerFailed = true;
+                    HookGuard.miss(HookGuard.LP_LAY, "LongPressLayout 里有不止一个像长按计时任务的字段（有歧义，一个都不记；需要重新用 TextRec 追踪）");
+                    return null;
+                }
+                found = f;
+            }
+        }
+        return found;
     }
 
     private static boolean pointsBack(Object o, Class<?> base, View owner) throws Exception {
         for (Class<?> k = o.getClass(); k != null && k != Object.class; k = k.getSuperclass()) {
             for (Field f : k.getDeclaredFields()) {
-                if (f.getType() != base || java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
+                if (f.getType() != base || Modifier.isStatic(f.getModifiers())) continue;
                 f.setAccessible(true);
                 if (f.get(o) == owner) return true;
             }
@@ -316,31 +405,13 @@ final class LongPressHook {
         return false;
     }
 
-    /** 遍历窗口里的视图，挑出可见面积最大的 LongPressLayout（只在点按键那一下走一次）。 */
-    private static void scan(View v, View[] best, int[] area, Rect tmp) {
-        if (v == null || v.getVisibility() != View.VISIBLE) return;
-        for (Class<?> c = v.getClass(); c != null && c != View.class; c = c.getSuperclass()) {
-            if (LP_LAYOUT.equals(c.getName())) {
-                if (v.isShown() && v.getGlobalVisibleRect(tmp)) {
-                    int ar = tmp.width() * tmp.height();
-                    if (ar > area[0]) {
-                        area[0] = ar;
-                        best[0] = v;
-                    }
-                }
-                break;
-            }
-        }
-        if (v instanceof ViewGroup) {
-            ViewGroup g = (ViewGroup) v;
-            for (int i = 0, n = g.getChildCount(); i < n; i++) scan(g.getChildAt(i), best, area, tmp);
-        }
-    }
-
     // ------------------------------------------------------------ 按键的样子
 
     /** 按键：和点赞 / 评论 / 分享一致（白色实心图标 + 下面一行白字，带阴影）；类本身也是「列里已经有按键了」的标记。 */
     private static final class PanelBtn extends LinearLayout {
+        /** 这个按键所在页的页面根（点按键时直接用它取计时任务）。 */
+        WeakReference<View> page;
+
         PanelBtn(Context ctx) {
             super(ctx);
             setOrientation(VERTICAL);

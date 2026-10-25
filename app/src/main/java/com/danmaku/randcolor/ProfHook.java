@@ -7,7 +7,7 @@ import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 
 /**
- * 个人主页默认停在「喜欢」（1.35.3：触发 + 一次主动切页 + 冷启动那几次恢复用「计数」改掉，次数在设置页可调；没有定时器、没有延时消息）。
+ * 个人主页默认停在「喜欢」（1.36.0：不再数次数，改成按调用来源区分「抖音自己的恢复」和「你手点的标签」；没有定时器、没有延时消息）。
  *
  * 三件事：
  *  1. 触发 prof.enter = com.ss.android.ugc.aweme.main.MainPageFragment$2#onChanged(Object)：底部标签切换的观察者，参数是一个 Pair，toString 形如
@@ -15,27 +15,27 @@ import de.robv.android.xposed.XposedBridge;
  *  2. 动作：触发时对个人主页的分页控件调一次 setCurrentItem(99, false)；99 越界，ViewPager 自己收成最后一页（= 喜欢），不认标签、不扫视图树、不依赖标签个数。
  *     分页控件从哪来：prof.pager 挂 ViewPager#setCurrentItem 两个重载，认出 this 是 ProfileViewPager 就记一个弱引用（整个进程只建一次，只在换对象时才分配）。
  *     触发时没有记下的对象 = 什么都不做。
- *  3. 冷启动计数：进程里**第一次**触发（= 冷启动后第一次点「我」）时把 remaining 设成设置里的次数 cfg.profRestores（默认 3，0～10，0 = 不处理）；之后 ProfileViewPager 每收到一次 setCurrentItem(0)
- *     （抖音自己恢复标签），参数改成 99 并 remaining 减一，减到 0 停。切到首页（HOME）时 remaining 清零。第二次起的触发不再计数（热启动只有 1 次恢复，读的是「记住的标签」，不会盖掉）。
- *     没有定时器、不看时间，只数次数，和手机快慢无关。
+ *  3. 取消抖音自己的恢复：触发（USER）之后到切回首页（HOME）之前是「窗口」；窗口里，触发时记下的那个分页控件上的 setCurrentItem(0)，
+ *     如果调用栈里没有类名以 com.bytedance.ies.dmt.ui.widget.tablayout.DmtTabLayout 开头的帧，就是抖音延迟投递的恢复，直接取消（不执行）；
+ *     栈里有这个类 = 标签栏自己选的（你手点「作品」就是这样），放行。只看类名，不用里面任何混淆的方法名。看栈抛异常就放行。
  *
- * 依据（TextRec 40.9.0，textrec-tasks-20261024-141908，加上之前的 20261023-231633、20261024-071912）：
- *  - MainPageFragment$2#onChanged：类名、方法名没混淆；签名 public final (Object) → void，同名重载只有 1 个；实现的是 androidx.lifecycle.Observer#onChanged，
- *    调用栈 NextLiveData$NextObserver.onChanged ← LiveData.considerNotify ← dispatchingValue ← setValue（主线程），启动后 28ms 就能找到这个类。
- *    点「我」两次各调一次 (USER, …)，点「首页」调 (HOME, …)。
- *  - 冷启动第一次进「我」，ProfileViewPager 上的 setCurrentItem(0) 共 4 次：19351ms（DmtTabLayout.onTabSelected，在触发之前，不算）、
- *    19827ms（X.18rI.run，触发后 +224ms）、19836ms（PandaProfileMyPager#LJJLJLI，+233ms）、约 20155ms（同 LJJLJLI，+552ms）；onChanged(USER) 在 19603ms。
- *    触发之后的 3 次就是次数默认值 3 的来源。setAdapter(ProfileViewPager) 在 19329ms，所以触发时分页控件已经建好、已被 prof.pager 记下。
- *  - 第二次进「我」（任务 4）：onChanged(USER) 在 56995ms，抖音自己的 setCurrentItem(0) 只有 1 次，在 57463ms（+468ms）；上机确认第二次起生效。
+ * 依据（TextRec 40.9.0，textrec-tasks-20261025-090731，加上之前的 20261024-141908、20261023-231633、20261024-071912）：
+ *  - MainPageFragment$2#onChanged：类名、方法名没混淆；点「我」调 (USER, …)，点「首页」调 (HOME, …)。
+ *  - 冷启动第一次进「我」：onChanged(USER) 在 6317ms（耗时 583ms）；其后 ProfileViewPager 上的 setCurrentItem(0) 共 4 次：
+ *      6559ms（栈里有 DmtTabLayout / DmtTabLayout$Tab，落在 onChanged 的耗时里，是它嵌套调用的，早于窗口开始）、
+ *      7170ms（X.18rI.run ← CallbackRunnable.run）、7179ms 和 7548ms（PandaProfileMyPager.LJJLJLI ← X.18rL.run ← CallbackRunnable.run）——后 3 次的栈里都没有 DmtTabLayout。
+ *  - 热启动再进「我」：onChanged(USER) 在 83944ms，之后只有 1 次 (0)，在 84472ms，栈同上（LJJLJLI ← X.18rL.run ← CallbackRunnable.run），没有 DmtTabLayout。
+ *  - 你手点：「喜欢」= setCurrentItem(4)，栈里有 DmtTabLayout、DmtTabLayout$TabView.performClick；「作品」= setCurrentItem(0)，栈里有 DmtTabLayout、DmtTabLayout$Tab。
+ *  - 进别人主页那一件事里，这个分页控件上没有 setCurrentItem。整个记录里 this 都是同一个 ProfileViewPager 对象。
  *  - ViewPager#setCurrentItem(int) / (int, boolean) 是 androidx 声明的（没混淆），ProfileViewPager 不覆写；类名 com.ss.android.ugc.aweme.profile.widgets.ProfileViewPager 没混淆。
- * 没有定时器、没有轮询、没有扫描；prof.enter 回调只在底部切页时才有（用户点一次一次），不是点击检测；prof.pager 回调里只比较引用 / 一个整数，计数期间才改参数。
+ *    DmtTabLayout 的类名没混淆（TextRec 只是把里面的 LJIL / LIZLLL 方法标成混淆，这里不用方法名）。
+ * 没有定时器、没有轮询、没有扫描；prof.enter 回调只在底部切页时才有（用户点一次一次），不是点击检测；prof.pager 回调里：别的 ViewPager 一次字符串比较就返回，
+ * 窗口外 / 不是记下的那个控件 / 参数不是 0 都只比较引用或一个整数，只有窗口里的 (0) 才看一次调用栈（每次进「我」只有几次）。
  *
  * 局限（没编译、没上机）：
- *  - 默认次数 3 只来自这一份冷启动追踪（一台手机、一个抖音版本 40.9.0）；1.35.3 起次数在设置页里可调，抖音更新后或者你的手机上次数不是 3 时自己改：
- *      变多 → 多出来的 (0) 没被改，冷启动第一次又被盖回「作品」（症状同 1.35.0）；
- *      变少 → 剩下的次数会被你之后手点「作品」吃掉，那一下点了没反应（仍停在「喜欢」），再点一次才行；切到首页清零，所以最多影响当次进「我」。
- *    冷启动第一次又不生效 → 调大；冷启动后第一次手点「作品」没反应 → 调小；想数准就用 TextRec 数冷启动时 ProfileViewPager 上 (0) 的次数。
- *  - 计数只算 setCurrentItem(0)：抖音恢复如果换成别的页号，不会被数到（安静失效）。
+ *  - 只在 40.9.0 一个版本、一台手机上验证过栈的形状；换版本后 DmtTabLayout 这个类名没了 / 恢复也走了 DmtTabLayout，会安静失效（停回「作品」，或你手点「作品」被当成恢复取消——后者不会发生，因为手点一定过 DmtTabLayout）。
+ *  - 窗口里抖音如果自己又从非标签栏的地方调 (0)（比如别的功能要回到「作品」），也会被取消，直到切回首页。
+ *  - 只处理触发时记下的那一个分页控件；触发之后抖音把分页控件重建成新对象，恢复不会被取消（停在「作品」，安静失效）。
  *  - 参数是 Pair 这一点来自 toString 的格式，没有看到类名；回调里用 toString().startsWith("(USER,") / ("(HOME,") 判断，格式变了就不触发（安静失效）。
  *    这个 toString 每次底部切页只做一次，不是热路径。
  *  - 「喜欢」是最后一页只有一个账号的证据。
@@ -54,14 +54,17 @@ final class ProfHook {
     /** 越界页号：ViewPager 收到最后一页（= 喜欢）。 */
     private static final Integer LAST = 99;
 
+    /** 标签栏的类名（含内部类）：栈里有它 = 标签栏自己选的页（手点标签）；没有 = 抖音延迟投递的恢复。只用类名，不用里面的混淆方法名。 */
+    private static final String TABLAYOUT = "com.bytedance.ies.dmt.ui.widget.tablayout.DmtTabLayout";
+
     private static final XC_MethodHook PAGER_HOOK = new PagerHook();
     private static final XC_MethodHook ENTER_HOOK = new EnterHook();
 
     private static volatile WeakReference<Object> pagerRef;
-    /** 进程里还没有过第一次触发（只在主线程回调里读写）。 */
-    private static boolean cold = true;
-    /** 还要改掉几次 setCurrentItem(0)（主线程读写）。 */
-    private static int remaining;
+    /** 窗口：触发（USER）之后到切回首页（HOME）之前（主线程读写）。 */
+    private static boolean window;
+    /** 触发时记下的那个分页控件：窗口里只处理它（主线程读写）。 */
+    private static WeakReference<Object> mineRef;
     private static volatile Method setItem;
 
     /** 启动时和每次回到前台都会被调用；功能没开就不挂（没有结论，开了之后回到前台再挂）。 */
@@ -101,7 +104,7 @@ final class ProfHook {
                 "MainPageFragment$2 里没有 onChanged（抖音改了底部标签切换的观察者，需要重新用 TextRec 追踪点底部「我」）", cl);
     }
 
-    /** 记住个人主页的分页控件；冷启动计数期间把抖音自己恢复标签的 (0) 改成 99。 */
+    /** 记住个人主页的分页控件；窗口里取消抖音自己恢复标签的 (0)（栈里没有 DmtTabLayout 的）。 */
     private static final class PagerHook extends XC_MethodHook {
         @Override
         protected void beforeHookedMethod(MethodHookParam p) {
@@ -113,12 +116,13 @@ final class ProfHook {
                     if (!PAGER.equals(o.getClass().getName())) return;
                     pagerRef = new WeakReference<Object>(o);
                 }
-                if (remaining <= 0) return;                         // 没在计数：什么都不改
+                if (!window) return;                                // 不在窗口里：什么都不改
+                WeakReference<Object> m = mineRef;
+                if (m == null || m.get() != o) return;              // 只处理触发时记下的那个分页控件
                 Object a = p.args[0];
-                if (!(a instanceof Integer) || ((Integer) a).intValue() != 0) return; // 只数抖音的恢复 (0)；我们自己的 99 放过
-                p.args[0] = LAST;                                   // 恢复 (0) → 喜欢
-                if (p.args.length > 1) p.args[1] = Boolean.FALSE;   // 不演滑动动画
-                remaining--;
+                if (!(a instanceof Integer) || ((Integer) a).intValue() != 0) return; // 只看 (0)；我们自己的 99 放过
+                if (fromTabLayout()) return;                        // 标签栏自己选的（手点标签）：放行
+                p.setResult(null);                                  // 抖音自己的恢复：取消，分页控件留在「喜欢」
             } catch (Throwable ignored) {
             }
         }
@@ -133,18 +137,28 @@ final class ProfHook {
                 Object a = p.args[0];
                 if (a == null) return;
                 String t = a.toString();
-                if (t.startsWith(HOME_PREFIX)) {                                // 切到首页：计数清零
-                    remaining = 0;
+                if (t.startsWith(HOME_PREFIX)) {                                // 切到首页：窗口关闭
+                    window = false;
                     return;
                 }
                 if (!t.startsWith(USER_PREFIX)) return;                         // 不是切到「我」
-                if (cold) {                                                     // 进程里第一次：开始数抖音随后的恢复
-                    cold = false;
-                    remaining = DanmakuHook.cfg.profRestores; // 设置页里的次数，默认 3（TextRec 40.9.0 数出来的，见头部注释）
-                }
+                mineRef = pagerRef;                                             // 窗口里只处理这个分页控件
+                window = true;
                 switchToLast();
             } catch (Throwable ignored) {
             }
+        }
+    }
+
+    /** 调用栈里有没有标签栏（DmtTabLayout，含内部类）的帧。只在窗口里的 (0) 被调到时才看；取栈抛异常就当有（放行）。 */
+    private static boolean fromTabLayout() {
+        try {
+            for (StackTraceElement e : new Throwable().getStackTrace()) {
+                if (e.getClassName().startsWith(TABLAYOUT)) return true;
+            }
+            return false;
+        } catch (Throwable t) {
+            return true;
         }
     }
 

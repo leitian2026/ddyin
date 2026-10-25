@@ -23,6 +23,23 @@
 ## 使用
 设置页的内容按功能折叠成一个个分组（点标题展开，展开一个其他自动收起；有总开关的分组不用展开就能开关）。前提：LSPosed 里启用模块、作用域勾选抖音、强杀抖音重开；改完点底部「保存并应用」（需要 root），抖音回到前台即生效。不推送则用默认：开启 + 鲜艳随机。
 
+## 1.40.4：点「面板」按键前，先把落点写成这一页长按层的正中间
+
+- **问题**：没触摸的页（刚划到、没点过的页）点按键，`run()` 执行了但面板没弹（TextRec 1.32.1 `textrec-tasks-20261025-235515` 实测，1.40.3 的「没改的」里记着）。
+- **依据**：这次直接读了 `X.0tdv.run` 的 smali（40.9.0 `classes25.dex`）。`run()` 先看 `enableLongClick`、`listener`，对父 View 调 `requestDisallowInterceptTouchEvent(true)`，然后依次过关口：`mHighPriorityLongPressIntercept`（返回 true 就拦）、`mInterceptListener`（返回 false 就拦）、`mLongPressFastSpeedListener`（返回 true 就拦）、`mLongPressSeekBarListener`（返回 true 就拦；`X.017g.LIZ()` 为 true 收 `lastX/lastY`，否则收 `lastRawX/lastRawY`），最后 `longPressEnable` 为 true 才 `listener.LIZ(lastX, lastY)`（弹面板）。关口收的全是落点，没触摸的页落点是 (0, 0)。`mDownTime`、`mHasTouchEvent`、`curX/curY`、`mTapListener` 里的字段 `run()` 都不读。
+- **改法**：`fire()` 在 `run()` 前把 `lastX/lastY` 写成长按层的正中间（控件内坐标），`lastRawX/lastRawY` 写成同一点的屏幕坐标，只写这 4 个。字段按名字和 `longPressRunnable` 一起在 `resolveTimer` 里取一次（float、非静态），任何一个取不到记成 `lp.lay` 未适配。写失败直接返回，不 `run()`。
+- **`HookGuard`**：`lp.lay` 匹配规则变了，`RULES_REV` 7 → 8。
+- **局限（没编译、没上机）**：哪个监听器在 (0, 0) 拦、在正中间不拦，没人看过；中间点管不管用要上机验证。不管用就用 TextRec 追 `mInterceptListener` 等几个关口的实现，再定落点；不会换别的办法顶上。写进去的落点不还原：下一次真实 DOWN 会覆盖它们。
+
+## 1.40.3：长按计时任务字段按名字取，不再遍历字段
+
+- **问题**：`resolveTimer` 第一次登记时遍历 `LongPressLayout`（及父类）的所有字段，找「值是 Runnable、且它的类里有字段指回控件」的那个，本质是扫描，不符合「不扫描」的要求。
+- **依据**：TextRec 1.32.1 `textrec-tasks-20261025-235515`（打开 `treeViews`）的数据树里，`X.0tdv#run` 的 `this.a`（`LongPressLayout`）下有字段 `longPressRunnable`，值就是 `X.0tdv`（树里写 `↩ this`）；另有字段 `listener`（`Y.AhaS2700S0100000_34`）。字段名没混淆。
+- **改法**：`resolveTimer` 改成按名字 `longPressRunnable` 从 `LongPressLayout` 起往上（到系统类为止）每层 `getDeclaredField` 一次，不遍历、不看字段的值；字段类型必须是 Runnable、不能是静态。整个进程只取一次，取不到记成 `lp.lay` 未适配，没有任何退路。`pointsBack` 删除。
+- **`HookGuard`**：`lp.lay` 匹配规则变了，`RULES_REV` 6 → 7（已记成「未适配」的会重试一次）。
+- **没改的**：`fire()` 仍然直接 `run()`，没往 `LongPressLayout` 里写任何字段。同一份记录证实：没触摸时 `run()` 不会走到 `LIZ`，单击 / 双击后才会；两种情况下 `LongPressLayout` 有 13 个字段不同（`mHasTouchEvent`、`mDownTime`、`curX/curY`、`lastX/lastY`、`lastRawX/lastRawY`、`mTapListener` 的 `a/b/g/h/l`）。`run()` 里到底是哪一个挡住了 `LIZ`，要看 `X.0tdv.run` 的方法体才能定，所以没触摸的页点按键仍然可能弹不出来。
+- **局限（没编译、没上机）**：`longPressRunnable` 字段名只在 40.9.0 上确认过；换版本改名会安静失效。
+
 ## 1.40.2：点「面板」按键用这一页自己的长按计时任务（视图树确认了页面容器）
 
 - **问题**：1.40.0 / 1.40.1 记下用户上一次长按的数据再回放，数据带着上一个视频的东西；而且那几个类里到底带了什么没人看过，每一版都在猜。

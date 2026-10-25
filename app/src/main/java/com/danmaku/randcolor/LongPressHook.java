@@ -24,17 +24,13 @@ import de.robv.android.xposed.XposedBridge;
  * 首页长按弹出的面板（分享给朋友 / 不感兴趣 …）改成：长按什么都不做（忽略），面板只能点一个常驻按键弹出；
  * 按键放在右侧按钮列里、作者头像前面，和头像一起走。
  *
- * 1.40.0 起点按键不再找计时任务、不再扫描：用户真长按时（被忽略的那一次也算）把抖音弹面板入口的数据记下来，
- * 点按键时直接把这份数据交给同一个入口，抖音自己往下走，和真长按一样。
+ * 1.40.1 起点按键不再找计时任务、不再扫描、也不记视频信息：只记「长按数据」（抖音处理长按的入口收到的那个参数 X.10dv），
+ * 点按键时把它交给同一个入口，抖音自己往下为当前视频造面板数据、弹面板，和真长按一样。
  *
  * 依据（TextRec 40.9.0，textrec-tasks-20261025-144949，首页长按三次：任务 2、任务 4 换了视频、任务 5 回到上一个视频）：
- *  - 弹面板的入口 = com.ss.android.ugc.aweme.feed.service.LongPressPanelServiceImpl#LJIIZILJ
- *    (androidx.fragment.app.Fragment, ...long_press_panel.model.LongPressPanelParams, ...feed.event.OnInternalEventListener) → boolean。
- *    类名和三个参数类型都没混淆，方法名混淆（只按追踪证据写死名字和完整签名，不放宽、不猜）。
- *    只在三次长按里出现，每次返回 true；this 是 LongPressPanelServiceImpl；arg0 三次都是同一个 FeedRecommendFragment；arg2 三次都是 null；
- *    arg1 每次长按重新构造（LongPressPanelParams#<init> 每次 2 次）。
- *  - 栈：Handler → X.0tdv.run → Y.AhaS2700S0100000_34.LIZ(float, float) → X.10du.LIZIZ → X.10du.LIZJ(FragmentActivity, X.10dv)
- *    → LongPressPanelParams.<init> → LJIIZILJ → … → DialogFragment#show（全部同步）。
+ *  - 长按栈（全同步）：Handler → X.0tdv.run → Y.AhaS2700S0100000_34.LIZ(float, float) → X.10du.LIZIZ(X.10dv):void（栈第 2 层）
+ *    → X.10du.LIZJ(FragmentActivity, X.10dv):void → LongPressPanelParams.<init>（每次 2 次）→ LongPressPanelServiceImpl.LJIIZILJ
+ *    → … → DialogFragment#show。LongPressPanelParams 是 X.10du.LIZJ 往下为当前视频现造的，所以不记它。
  *  - 面板 = com.ss.android.ugc.aweme.feed.long_press_panel.impl.LongPressPanelFragmentImpl（DialogFragment，类名没混淆），
  *    弹出的最终入口 DialogFragment#show(FragmentManager, String)，参数 (FragmentManager, "LongPressPanelFragment")，返回 void。
  *  - 作者头像 = com.ss.android.ugc.aweme.base.ui.SmartAvatarBorderView，资源名 user_avatar；右侧按钮列 = com.ss.android.ugc.aweme.feed.ui.FeedRightScaleView；
@@ -43,20 +39,18 @@ import de.robv.android.xposed.XposedBridge;
  * 做法（3 个钩子）：
  *  1. lp.show = DialogFragment#show(FragmentManager, String)，before：this 的类名是 LongPressPanelFragmentImpl 才处理。
  *     点按键触发的那一次（armed）放行；用户自己的长按 setResult(null) 忽略。按键这条路没通（lp.col / lp.go 没挂上）时不拦，长按照常弹面板。
- *  2. lp.go = LongPressPanelServiceImpl#LJIIZILJ，before：记下 this / arg0 / arg1 / arg2（不改任何行为）。用户长按时 LJIIZILJ 在 show 之前就被调到，
- *     所以被 lp.show 忽略的那一次长按也会把数据记下来。
+ *  2. lp.go = X.10du#LIZIZ(X.10dv)（混淆名，按模板 A 写死名字和签名），before：记下长按数据 X.10dv（方法非静态时再记 this）。
+ *     被 lp.show 忽略的那一次长按也会记下。
  *  3. lp.col = DraweeView#setController，after：把按键放进头像所在的那一项前面（一页一次）。
- *  点按键：armed = true，用挂钩时拿到的 Method 直接 invoke(记下的 this, arg0, arg1, arg2)，钩子放行这一次 show。没有触摸、没有计时、没有搜索。
+ *  点按键：armed = true，用挂钩时拿到的 Method 直接 invoke(记下的 this, X.10dv)，钩子放行这一次 show。没有触摸、没有计时、没有搜索。
  *  还没记到数据（用户一次长按都没做过）：什么都不做，没有任何退路。
  *
- * 没有定时器、没有轮询；lp.go 的回调只在弹面板入口被调到时走（四次赋值）。
- *
  * 局限（没编译、没上机）：
- *  - 记下的是上一次长按的 LongPressPanelParams。它里面有没有「这个视频」的信息（默认值里 SharePackage 的标识 / 链接 / 标题都是空的，
- *    是长按时才填的），TextRec 没有把 LJIIZILJ 的 arg1 展开，不知道。如果有，换了视频再点按键，弹出来的会是上一次长按的那个视频的面板——上机第一件事就看这个。
- *  - 记下的对象（Fragment / Params）会一直被持有到下一次长按覆盖它们。
+ *  - TextRec 没有展开过 X.10dv（只追了 LongPressPanelParams / DialogFragment#show / LongPressPanelServiceImpl），不知道它里面有没有指向「这一个视频 / 这一页」的东西。
+ *    如果有，换了视频再点按键弹出来的会不对；上机第一件事就是换个视频点按键看面板是不是当前视频。
+ *  - 不知道 X.10du#LIZIZ 是静态还是实例方法；代码两种都处理（实例方法记 this，静态方法 this 传 null）。
+ *  - 记下的对象会一直被持有到下一次长按覆盖。
  *  - 只在 40.9.0 一台手机上验证过钩点；名字 / 签名变了会安静失效（lp.go 显示未适配，长按照常弹面板）。
- *  - 没验证：同一个 FeedRecommendFragment 在个人页 / 直播间里是不是同一个对象，Fragment 销毁重建之后记下的那份还能不能用。
  */
 final class LongPressHook {
     private LongPressHook() {}
@@ -70,12 +64,10 @@ final class LongPressHook {
     private static final String AVATAR_ID = "user_avatar";
     private static final String COLUMN = "com.ss.android.ugc.aweme.feed.ui.FeedRightScaleView";
 
-    /** lp.go：弹面板入口（类名没混淆；方法名混淆，写死 TextRec 40.9.0 追到的名字和完整签名）。 */
-    private static final String SVC = "com.ss.android.ugc.aweme.feed.service.LongPressPanelServiceImpl";
-    private static final String SVC_METHOD = "LJIIZILJ";
-    private static final String T_FRAG = "androidx.fragment.app.Fragment";
-    private static final String T_PARAMS = "com.ss.android.ugc.aweme.feed.long_press_panel.model.LongPressPanelParams";
-    private static final String T_LISTENER = "com.ss.android.ugc.aweme.feed.event.OnInternalEventListener";
+    /** lp.go：长按的入口（全是混淆名，写死 TextRec 40.9.0 追到的名字和签名：X.10du#LIZIZ(X.10dv):void，栈第 2 层）。 */
+    private static final String ENTRY = "X.10du";
+    private static final String ENTRY_METHOD = "LIZIZ";
+    private static final String ENTRY_ARG = "X.10dv";
 
     private static final XC_MethodHook HOOK = new Hook();
     private static final XC_MethodHook COL_HOOK = new ColHook();
@@ -90,9 +82,9 @@ final class LongPressHook {
     /** 已经放进列里的按键（主线程读写）；回到前台时按开关显示 / 隐藏。 */
     private static final ArrayList<WeakReference<View>> BTNS = new ArrayList<>();
 
-    /** lp.go 挂上的那个方法（挂钩之前先赋值）和记下的一次长按的数据（主线程读写；下一次长按覆盖）。 */
+    /** lp.go 挂上的那个方法（挂钩之前先赋值）和记下的一次长按的数据（X.10dv；非静态方法才记 this）。主线程读写，下一次长按覆盖。 */
     private static volatile Method goMethod;
-    private static Object goSvc, goFrag, goParams, goListener;
+    private static Object goThis, goData;
 
     /** 启动时和每次回到前台都会被调用；功能没开就不挂（没有结论，开了之后回到前台再挂）。 */
     static synchronized void tryHook(ClassLoader cl) {
@@ -178,15 +170,14 @@ final class LongPressHook {
 
     private static void tryGo(ClassLoader cl) {
         if (HookGuard.settled(HookGuard.LP_GO)) return;
-        Class<?> c = HookGuard.find(HookGuard.LP_GO, SVC, cl);
+        Class<?> c = HookGuard.find(HookGuard.LP_GO, ENTRY, cl);
         if (c == null) return;
         int n = 0;
         try {
             for (Method m : c.getDeclaredMethods()) {
-                if (!SVC_METHOD.equals(m.getName()) || m.getReturnType() != boolean.class) continue;
+                if (!ENTRY_METHOD.equals(m.getName()) || m.getReturnType() != void.class) continue;
                 Class<?>[] t = m.getParameterTypes();
-                if (t.length != 3 || !T_FRAG.equals(t[0].getName()) || !T_PARAMS.equals(t[1].getName())
-                        || !T_LISTENER.equals(t[2].getName())) continue;
+                if (t.length != 1 || !ENTRY_ARG.equals(t[0].getName())) continue;
                 m.setAccessible(true);
                 goMethod = m;                                         // 先赋值再挂钩
                 XposedBridge.hookMethod(m, GO_HOOK);
@@ -198,22 +189,20 @@ final class LongPressHook {
             return;
         }
         if (n > 0) HookGuard.ok(HookGuard.LP_GO, "");
-        else HookGuard.miss(HookGuard.LP_GO, "LongPressPanelServiceImpl 里没有 LJIIZILJ(Fragment, LongPressPanelParams, OnInternalEventListener)（抖音改了，需要重新用 TextRec 追踪首页长按弹面板的入口）");
+        else HookGuard.miss(HookGuard.LP_GO, "X.10du 里没有 LIZIZ(X.10dv)（抖音改了，需要重新用 TextRec 追踪首页长按的入口）");
     }
 
-    /** 用户长按走到弹面板入口时记下 this 和三个参数（不改结果、不改参数）。 */
+    /** 用户长按走到入口时记下长按数据（不改结果、不改参数）。 */
     private static final class GoHook extends XC_MethodHook {
         @Override
         protected void beforeHookedMethod(MethodHookParam p) {
             try {
                 if (!DanmakuHook.cfg.lpBtn) return;
                 Object[] a = p.args;
-                if (a == null || a.length != 3 || p.thisObject == null || a[0] == null || a[1] == null) return;
+                if (a == null || a.length != 1 || a[0] == null) return;
                 if (Looper.myLooper() != Looper.getMainLooper()) return;
-                goSvc = p.thisObject;
-                goFrag = a[0];
-                goParams = a[1];
-                goListener = a[2];
+                goThis = p.thisObject;                                // 静态方法时是 null
+                goData = a[0];
             } catch (Throwable ignored) {
             }
         }
@@ -285,17 +274,18 @@ final class LongPressHook {
     }
 
     /**
-     * 点按键：把记下的那次长按的数据直接交给抖音弹面板的入口（LJIIZILJ），放行下一次 show。
+     * 点按键：把记下的长按数据直接交给抖音处理长按的入口（X.10du#LIZIZ），放行下一次 show；面板内容由抖音自己按当前视频生成。
      * 没有触摸、没有计时、没有任何搜索。还没记到数据 / 入口调用出错，都什么都不做。
      */
     private static void fire(View b) {
         if (!(b instanceof PanelBtn) || !b.isAttachedToWindow()) return;
         Method m = goMethod;
-        Object s = goSvc, f = goFrag, pr = goParams, l = goListener;
-        if (m == null || s == null || f == null || pr == null) return;       // 用户还没长按过
+        Object t = goThis, d = goData;
+        if (m == null || d == null) return;                                   // 用户还没长按过
+        if (t == null && !java.lang.reflect.Modifier.isStatic(m.getModifiers())) return;
         armed = true;
         try {
-            m.invoke(s, f, pr, l);
+            m.invoke(t, d);
         } catch (Throwable ignored) {
         } finally {
             armed = false; // show 在入口里同步调用，走完就不留放行标记

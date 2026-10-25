@@ -47,7 +47,7 @@ public class MainActivity extends Activity {
     private boolean dark;
     private int cBg, cCard, cStroke, cText, cSub, cPrimary, cPrimarySoft, cField, cInset;
 
-    private EditText etPkg, etIdle, etProfN;
+    private EditText etPkg, etIdle;
     /** 首页顶部标签行里的 13 个标签（来自 TextRec 追踪，40.7.0）；勾选 = 隐藏。 */
     private static final String[] TAB_LABELS = {"推荐", "关注", "热点", "同城", "商城", "经验", "游戏", "少儿", "精选", "团购", "免费看剧", "短剧", "直播"};
     private final CheckBox[] cbTabs = new CheckBox[TAB_LABELS.length];
@@ -121,19 +121,8 @@ public class MainActivity extends Activity {
         place(sLike);
 
         swProfFav = new Switch(this);
-        etProfN = field();
-        etProfN.setInputType(InputType.TYPE_CLASS_NUMBER);
-        etProfN.setHint("次数，默认 3，0 = 不处理");
-        watch(etProfN);
-        Section sProf = new Section("我的主页默认「喜欢」", false, null, () -> {
-            if (!swProfFav.isChecked()) return "未开启";
-            String t = etProfN.getText().toString().trim();
-            return "已开启（冷启动 " + (t.isEmpty() ? "3" : t) + " 次）";
-        });
+        Section sProf = new Section("我的主页默认「喜欢」", false, null, () -> swProfFav.isChecked() ? "已开启" : "未开启");
         sProf.body.addView(switchRow("点「我」默认显示喜欢", "每次点底部「我」都切到「喜欢」标签（最后一个标签）；进了以后你自己点其他标签不受影响", swProfFav));
-        sProf.body.addView(note("冷启动（抖音刚启动）后第一次点「我」，抖音自己会再把页面恢复到「作品」好几次，这里填要改掉的次数，默认 3，范围 0～10，0 = 不处理。\n"
-                + "冷启动第一次点「我」又停在「作品」→ 调大；冷启动后第一次手点「作品」没反应（要再点一次）→ 调小。只影响抖音启动后第一次点「我」，之后点「我」不受影响。改完保存后，要把抖音划掉重开，再点「我」试。"));
-        sProf.body.addView(etProfN);
         place(sProf);
 
         // ================= 视频页
@@ -658,7 +647,6 @@ public class MainActivity extends Activity {
         swEnabled.setChecked(c.enabled);
         swDtap.setChecked(c.dtapToComment);
         swProfFav.setChecked(c.profFav);
-        etProfN.setText(String.valueOf(c.profRestores));
         swTime.setChecked(c.timeAlways);
         etIdle.setText(String.valueOf(c.idleExitMin));
         for (int i = 0; i < TAB_LABELS.length; i++) {
@@ -703,11 +691,6 @@ public class MainActivity extends Activity {
         c.mode = segIndex(segMode) == 1 ? 1 : 0;
         c.dtapToComment = swDtap.isChecked();
         c.profFav = swProfFav.isChecked();
-        try {
-            c.profRestores = Math.max(0, Math.min(10, Integer.parseInt(etProfN.getText().toString().trim())));
-        } catch (Throwable t) {
-            c.profRestores = 3;
-        }
         c.timeAlways = swTime.isChecked();
         c.pubAlways = swPub.isChecked();
         c.timeSize = timeSizeF.v;

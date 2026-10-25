@@ -59,6 +59,7 @@ final class DanmakuHook {
         TimeHook.tryHook(lp.classLoader);
         TabHook.tryHook(lp.classLoader);
         ProfHook.tryHook(lp.classLoader);
+        LongPressHook.tryHook(lp.classLoader);
         PubHook.tryHook(lp.classLoader);
         LiveHook.tryHook(lp.classLoader);
         IdleExit.install();
@@ -118,6 +119,7 @@ final class DanmakuHook {
                         if (!(p.thisObject instanceof Activity)) return;
                         Activity a = (Activity) p.thisObject;
                         PubHook.onResume(a);
+                        LongPressHook.onResume(a);
                         LiveHook.onResume();
                         IdleExit.onResume();
                         HookGuard.noteVersion(a);
@@ -128,6 +130,7 @@ final class DanmakuHook {
                         TimeHook.tryHook(cl);
                         TabHook.tryHook(cl);
                         ProfHook.tryHook(cl);
+                        LongPressHook.tryHook(cl);
                         PubHook.tryHook(cl);
                         LiveHook.tryHook(cl);
                         tryInstall(cl); // Compose 类可能晚于进程启动才可用

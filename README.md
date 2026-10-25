@@ -23,6 +23,15 @@
 ## 使用
 设置页的内容按功能折叠成一个个分组（点标题展开，展开一个其他自动收起；有总开关的分组不用展开就能开关）。前提：LSPosed 里启用模块、作用域勾选抖音、强杀抖音重开；改完点底部「保存并应用」（需要 root），抖音回到前台即生效。不推送则用默认：开启 + 鲜艳随机。
 
+## 1.40.0：点「面板」按键直接把长按的数据交给抖音，不找计时任务、不扫描
+
+- **问题**：1.39.4 点按键要靠 `lp.lay`（挂 `LongPressLayout` 构造方法 + 挂载监听）、在字段里反射找计时任务、往上找页面根，仍然是在搜。
+- **改法**：整套删掉（`lp.lay`、页面根登记、`resolveTimer`、直接 `run()`）。新钩子 `lp.go`（替换 `lp.lay`）挂在抖音弹面板的入口 `LongPressPanelServiceImpl#LJIIZILJ(Fragment, LongPressPanelParams, OnInternalEventListener)`，before，只记下 `this` 和三个参数，不改任何行为。用户长按时这个入口在 `show` 之前就被调到，所以被 `lp.show` 忽略的那一次长按也会记下数据。点按键：置 `armed`，用挂钩时拿到的 `Method` 直接 `invoke(记下的 this, 参数…)`，同步走完抖音自己的弹面板流程，`lp.show` 放行这一次。
+- **依据**（TextRec 40.9.0，`textrec-tasks-20261025-144949`，首页长按三次，中间换过视频）：`LJIIZILJ` 只在长按里出现，每次返回 `true`；类名和三个参数类型没混淆，方法名混淆，按模板 A 只写死追踪到的名字和完整签名，不放宽、不猜；arg0 三次都是同一个 `FeedRecommendFragment`，arg2 三次都是 `null`，arg1 每次重新构造。长按栈：Handler → `X.0tdv.run` → `Y.AhaS2700S0100000_34.LIZ(float, float)` → `X.10du.LIZIZ` → `X.10du.LIZJ` → `LongPressPanelParams.<init>` → `LJIIZILJ` → … → `DialogFragment#show`。
+- **失败时**：`lp.go` 没挂上（`miss`）→ 不放按键、不拦长按，长按照常弹面板；用户一次长按都没做过 → 点按键什么都不做，没有任何退路（不合成触摸、不找计时任务）。
+- **局限（没编译、没上机）**：①记下的是上一次长按的 `LongPressPanelParams`，它里面有没有「这个视频」的信息（默认值里 `SharePackage` 的标识 / 链接 / 标题都是空的）TextRec 没展开，不知道；如果有，换了视频再点按键弹出来的会是上一次长按的那个视频的面板，**上机先看这个**。②记下的 Fragment / Params 会被持有到下一次长按覆盖。③没验证 Fragment 销毁重建后记下的那份还能不能用。④使用上：设置里开着这个功能时，要先真长按一次（这一次不弹面板，但会被记下），之后点按键才有反应。
+- `HookGuard`：`LP_LAY` / `lp.lay` 改成 `LP_GO` / `lp.go`（同一个下标 18）；匹配规则没改已有钩子，`RULES_REV` 不变。
+
 ## 1.39.4：点「面板」按键什么都不搜，直接取这一页的计时任务
 
 - **问题**：1.39.3 虽然不再遍历视图树，但点按键时还是要在记下的几个页里按「屏幕上可见面积最大」挑一个，仍然是在搜。

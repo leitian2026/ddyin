@@ -7,7 +7,7 @@ import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 
 /**
- * 个人主页默认停在「喜欢」（1.36.0：不再数次数，改成按调用来源区分「抖音自己的恢复」和「你手点的标签」；没有定时器、没有延时消息）。
+ * 个人主页默认停在「喜欢」（1.36.0：不再数次数，按调用来源区分「抖音自己的恢复」和「你手点的标签」；1.36.1：抖音自己的恢复不再取消，改成把它要去的第 0 页换成最后一页；没有定时器、没有延时消息）。
  *
  * 三件事：
  *  1. 触发 prof.enter = com.ss.android.ugc.aweme.main.MainPageFragment$2#onChanged(Object)：底部标签切换的观察者，参数是一个 Pair，toString 形如
@@ -15,9 +15,11 @@ import de.robv.android.xposed.XposedBridge;
  *  2. 动作：触发时对个人主页的分页控件调一次 setCurrentItem(99, false)；99 越界，ViewPager 自己收成最后一页（= 喜欢），不认标签、不扫视图树、不依赖标签个数。
  *     分页控件从哪来：prof.pager 挂 ViewPager#setCurrentItem 两个重载，认出 this 是 ProfileViewPager 就记一个弱引用（整个进程只建一次，只在换对象时才分配）。
  *     触发时没有记下的对象 = 什么都不做。
- *  3. 取消抖音自己的恢复：触发（USER）之后到切回首页（HOME）之前是「窗口」；窗口里，触发时记下的那个分页控件上的 setCurrentItem(0)，
- *     如果调用栈里没有类名以 com.bytedance.ies.dmt.ui.widget.tablayout.DmtTabLayout 开头的帧，就是抖音延迟投递的恢复，直接取消（不执行）；
- *     栈里有这个类 = 标签栏自己选的（你手点「作品」就是这样），放行。只看类名，不用里面任何混淆的方法名。看栈抛异常就放行。
+ *  3. 改写抖音自己的恢复：触发（USER）之后到切回首页（HOME）之前是「窗口」；窗口里，触发时记下的那个分页控件上的 setCurrentItem(0)，
+ *     如果调用栈里没有类名以 com.bytedance.ies.dmt.ui.widget.tablayout.DmtTabLayout 开头的帧，就是抖音延迟投递的恢复，把参数 0 换成 99（最后一页 = 喜欢）再执行；
+ *     栈里有这个类 = 标签栏自己选的（你手点「作品」就是这样），原样放行。只看类名，不用里面任何混淆的方法名。看栈抛异常就放行。
+ *     为什么不取消：冷启动第一次，触发（6900ms）时分页控件的页还没建好，触发时那一下 99 没有效果（1.36.0 实测停在「作品」）；
+ *     抖音的恢复（7170 / 7179 / 7548ms）是页建好之后才来的，在它这一下上改目标，页一定在，不用数次数、不用延时。
  *
  * 依据（TextRec 40.9.0，textrec-tasks-20261025-090731，加上之前的 20261024-141908、20261023-231633、20261024-071912）：
  *  - MainPageFragment$2#onChanged：类名、方法名没混淆；点「我」调 (USER, …)，点「首页」调 (HOME, …)。
@@ -33,9 +35,9 @@ import de.robv.android.xposed.XposedBridge;
  * 窗口外 / 不是记下的那个控件 / 参数不是 0 都只比较引用或一个整数，只有窗口里的 (0) 才看一次调用栈（每次进「我」只有几次）。
  *
  * 局限（没编译、没上机）：
- *  - 只在 40.9.0 一个版本、一台手机上验证过栈的形状；换版本后 DmtTabLayout 这个类名没了 / 恢复也走了 DmtTabLayout，会安静失效（停回「作品」，或你手点「作品」被当成恢复取消——后者不会发生，因为手点一定过 DmtTabLayout）。
- *  - 窗口里抖音如果自己又从非标签栏的地方调 (0)（比如别的功能要回到「作品」），也会被取消，直到切回首页。
- *  - 只处理触发时记下的那一个分页控件；触发之后抖音把分页控件重建成新对象，恢复不会被取消（停在「作品」，安静失效）。
+ *  - 只在 40.9.0 一个版本、一台手机上验证过栈的形状；换版本后 DmtTabLayout 这个类名没了 / 恢复也走了 DmtTabLayout，会安静失效（停回「作品」，或你手点「作品」被当成恢复改走——后者不会发生，因为手点一定过 DmtTabLayout）。
+ *  - 窗口里抖音如果自己又从非标签栏的地方调 (0)（比如别的功能要回到「作品」），也会被改成最后一页，直到切回首页。
+ *  - 只处理触发时记下的那一个分页控件；触发之后抖音把分页控件重建成新对象，恢复不会被改（停在「作品」，安静失效）。
  *  - 参数是 Pair 这一点来自 toString 的格式，没有看到类名；回调里用 toString().startsWith("(USER,") / ("(HOME,") 判断，格式变了就不触发（安静失效）。
  *    这个 toString 每次底部切页只做一次，不是热路径。
  *  - 「喜欢」是最后一页只有一个账号的证据。
@@ -104,7 +106,7 @@ final class ProfHook {
                 "MainPageFragment$2 里没有 onChanged（抖音改了底部标签切换的观察者，需要重新用 TextRec 追踪点底部「我」）", cl);
     }
 
-    /** 记住个人主页的分页控件；窗口里取消抖音自己恢复标签的 (0)（栈里没有 DmtTabLayout 的）。 */
+    /** 记住个人主页的分页控件；窗口里把抖音自己恢复标签的 (0)（栈里没有 DmtTabLayout 的）改成最后一页。 */
     private static final class PagerHook extends XC_MethodHook {
         @Override
         protected void beforeHookedMethod(MethodHookParam p) {
@@ -122,7 +124,7 @@ final class ProfHook {
                 Object a = p.args[0];
                 if (!(a instanceof Integer) || ((Integer) a).intValue() != 0) return; // 只看 (0)；我们自己的 99 放过
                 if (fromTabLayout()) return;                        // 标签栏自己选的（手点标签）：放行
-                p.setResult(null);                                  // 抖音自己的恢复：取消，分页控件留在「喜欢」
+                p.args[0] = LAST;                                   // 抖音自己的恢复：把它要去的「作品」换成最后一页（喜欢）
             } catch (Throwable ignored) {
             }
         }

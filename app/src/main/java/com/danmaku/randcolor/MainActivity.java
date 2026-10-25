@@ -51,7 +51,7 @@ public class MainActivity extends Activity {
     /** 首页顶部标签行里的 13 个标签（来自 TextRec 追踪，40.7.0）；勾选 = 隐藏。 */
     private static final String[] TAB_LABELS = {"推荐", "关注", "热点", "同城", "商城", "经验", "游戏", "少儿", "精选", "团购", "免费看剧", "短剧", "直播"};
     private final CheckBox[] cbTabs = new CheckBox[TAB_LABELS.length];
-    private Switch swEnabled, swDtap, swTime, swPub, swProfFav;
+    private Switch swEnabled, swDtap, swTime, swPub, swProfFav, swLp;
     private LinearLayout segMode, statusCard;
     /** 时长 / 发布信息的字号（sp）、三处颜色（0 = 默认 / 不改）、发布信息的积木列表。 */
     private SizeField timeSizeF, pubSizeF;
@@ -72,7 +72,9 @@ public class MainActivity extends Activity {
     private LinearLayout segBarSel;
     /** 发布日期地点行、视频时长行的位置偏移（dp）：不在设置页调，在抖音里用位置浮窗调，这里只存 / 显示。 */
     private int pubX = -1, pubY = -1, timeX = -1, timeY = -1;
-    private TextView tvPubPos, tvTimePos;
+    /** 首页长按面板那个按键的位置（dp）：同样只在抖音里用位置浮窗调。 */
+    private int lpX = -1, lpY = -1;
+    private TextView tvPubPos, tvTimePos, tvLpPos;
     private TextView tvLivePos, btnAdjust;
     private TextView tvStatus, btnPush, btnHooks;
     private ScrollView scroll;
@@ -125,6 +127,13 @@ public class MainActivity extends Activity {
         sProf.body.addView(switchRow("点「我」默认显示喜欢", "每次点底部「我」都切到「喜欢」标签（最后一个标签）；进了以后你自己点其他标签不受影响", swProfFav));
         place(sProf);
 
+        swLp = new Switch(this);
+        Section sLp = new Section("首页长按弹框改成按键", false, null, () -> swLp.isChecked() ? "已开启" : "未开启");
+        sLp.body.addView(switchRow("长按先弹出按键", "在首页长按视频不再直接弹出面板（分享给朋友、不感兴趣等），先弹出一个按键，点按键才弹出原来的面板；点按键以外的地方、按返回，什么都不弹", swLp));
+        sLp.body.addView(rowLine());
+        sLp.body.addView(vidPosRow(2));
+        place(sLp);
+
         // ================= 视频页
         beginGroup(root, "视频页");
 
@@ -138,7 +147,7 @@ public class MainActivity extends Activity {
         sTime.body.addView(rowLine());
         sTime.body.addView(timeColorF.row("颜色"));
         sTime.body.addView(rowLine());
-        sTime.body.addView(vidPosRow(false));
+        sTime.body.addView(vidPosRow(1));
         place(sTime);
 
         swPub = new Switch(this);
@@ -185,7 +194,7 @@ public class MainActivity extends Activity {
         sPub.body.addView(rowLine());
         sPub.body.addView(pubColorF.row("颜色"));
         sPub.body.addView(rowLine());
-        sPub.body.addView(vidPosRow(true));
+        sPub.body.addView(vidPosRow(0));
         place(sPub);
 
         blankF = new BlankField();
@@ -542,7 +551,8 @@ public class MainActivity extends Activity {
     }
 
     /** 发布日期地点 / 视频时长各自的「位置」一行：当前水平偏移 + 「去抖音里调整」按钮。只能左右调（要先打开对应的开关，那一行才看得到）。 */
-    private View vidPosRow(boolean pub) {
+    /** which：0 = 发布地  1 = 时长  2 = 长按面板的按键。 */
+    private View vidPosRow(int which) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         LinearLayout row = new LinearLayout(this);
@@ -554,8 +564,9 @@ public class MainActivity extends Activity {
         txt.addView(tv("位置", 15, cText, false));
         TextView t = tv("", 13, cSub, false);
         t.setPadding(0, dp(2), 0, 0);
-        if (pub) tvPubPos = t;
-        else tvTimePos = t;
+        if (which == 0) tvPubPos = t;
+        else if (which == 1) tvTimePos = t;
+        else tvLpPos = t;
         txt.addView(t);
         row.addView(txt, new LinearLayout.LayoutParams(0, -2, 1f));
         final TextView b = pillButton("去抖音里调整", true);
@@ -563,7 +574,9 @@ public class MainActivity extends Activity {
         b.setOnClickListener(v -> adjustVid(b));
         row.addView(b, new LinearLayout.LayoutParams(dp(124), dp(42)));
         box.addView(row);
-        box.addView(note("全屏任意位置：在抖音视频页里选「" + (pub ? "发布地" : "时长") + "」，在屏幕上拖动，点浮窗里的「完成」。要先打开上面的开关，才看得到。"));
+        box.addView(note(which == 2
+                ? "全屏任意位置：在抖音视频页里选「按键」，屏幕上会出现按键的样子（不用先长按），在屏幕上拖动，点浮窗里的「完成」。"
+                : "全屏任意位置：在抖音视频页里选「" + (which == 0 ? "发布地" : "时长") + "」，在屏幕上拖动，点浮窗里的「完成」。要先打开上面的开关，才看得到。"));
         return box;
     }
 
@@ -574,6 +587,7 @@ public class MainActivity extends Activity {
     private void updateVidPos() {
         if (tvPubPos != null) tvPubPos.setText(dpText(pubX, pubY));
         if (tvTimePos != null) tvTimePos.setText(dpText(timeX, timeY));
+        if (tvLpPos != null) tvLpPos.setText(dpText(lpX, lpY));
     }
 
     /** 保存并应用当前设置（带上「视频文字位置调节模式」），成功后打开抖音。 */
@@ -587,7 +601,7 @@ public class MainActivity extends Activity {
         DanmakuConfig c = read();
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("cfg", c.toText()).putString("pkg", pkgs).apply();
         c.vidAdjust = true;
-        push(list, c.toText(), btn, "去抖音里调整", "\n在抖音的视频页里，先选「发布地」或「时长」，在屏幕上任意拖动，点浮窗里的「完成」；回到这里会自动同步新位置。");
+        push(list, c.toText(), btn, "去抖音里调整", "\n在抖音的视频页里，先选「发布地」、「时长」或「按键」，在屏幕上任意拖动，点浮窗里的「完成」；回到这里会自动同步新位置。");
     }
 
     @Override
@@ -622,6 +636,8 @@ public class MainActivity extends Activity {
                 pubY = got.pubY;
                 timeX = got.timeX;
                 timeY = got.timeY;
+                lpX = got.lpX;
+                lpY = got.lpY;
                 updateLivePos();
                 updateVidPos();
                 SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
@@ -632,8 +648,10 @@ public class MainActivity extends Activity {
                 mine.pubY = pubY;
                 mine.timeX = timeX;
                 mine.timeY = timeY;
+                mine.lpX = lpX;
+                mine.lpY = lpY;
                 sp.edit().putString("cfg", mine.toText()).putBoolean("adj", false).apply();
-                showStatus("已同步抖音里调好的位置（直播 " + liveX + "% / " + liveY + "%；发布地 " + dpText(pubX, pubY) + "；时长 " + dpText(timeX, timeY) + "）", 1);
+                showStatus("已同步抖音里调好的位置（直播 " + liveX + "% / " + liveY + "%；发布地 " + dpText(pubX, pubY) + "；时长 " + dpText(timeX, timeY) + "；按键 " + dpText(lpX, lpY) + "）", 1);
             });
         }).start();
     }
@@ -647,6 +665,7 @@ public class MainActivity extends Activity {
         swEnabled.setChecked(c.enabled);
         swDtap.setChecked(c.dtapToComment);
         swProfFav.setChecked(c.profFav);
+        swLp.setChecked(c.lpBtn);
         swTime.setChecked(c.timeAlways);
         etIdle.setText(String.valueOf(c.idleExitMin));
         for (int i = 0; i < TAB_LABELS.length; i++) {
@@ -679,6 +698,8 @@ public class MainActivity extends Activity {
         pubY = c.pubY;
         timeX = c.timeX;
         timeY = c.timeY;
+        lpX = c.lpX;
+        lpY = c.lpY;
         blankF.set(c.blankH);
         swBar.setChecked(c.barOn);
         setSeg(segBarSel, Math.max(1, Math.min(3, c.barSel)) - 1);
@@ -691,6 +712,7 @@ public class MainActivity extends Activity {
         c.mode = segIndex(segMode) == 1 ? 1 : 0;
         c.dtapToComment = swDtap.isChecked();
         c.profFav = swProfFav.isChecked();
+        c.lpBtn = swLp.isChecked();
         c.timeAlways = swTime.isChecked();
         c.pubAlways = swPub.isChecked();
         c.timeSize = timeSizeF.v;
@@ -713,6 +735,8 @@ public class MainActivity extends Activity {
         c.pubY = pubY;
         c.timeX = timeX;
         c.timeY = timeY;
+        c.lpX = lpX;
+        c.lpY = lpY;
         c.blankH = blankF.v;
         c.barOn = swBar.isChecked();
         c.barSel = segIndex(segBarSel) + 1;
@@ -800,6 +824,7 @@ public class MainActivity extends Activity {
             {"live.room", "直播间开播时间：房间数据"},
             {"prof.pager", "我的主页默认喜欢：记住个人主页的翻页控件（ViewPager#setCurrentItem）"},
             {"prof.enter", "我的主页默认喜欢：点底部「我」时切到喜欢（MainPageFragment$2#onChanged）"},
+            {"lp.show", "首页长按弹框改成按键：拦住长按面板的弹出（DialogFragment#show）"},
     };
 
     /** 用 root 读抖音数据目录里的 hooks.properties（抖音进程自己写的），列出每个钩子的状态。 */

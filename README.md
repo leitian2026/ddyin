@@ -23,13 +23,17 @@
 ## 使用
 设置页的内容按功能折叠成一个个分组（点标题展开，展开一个其他自动收起；有总开关的分组不用展开就能开关）。前提：LSPosed 里启用模块、作用域勾选抖音、强杀抖音重开；改完点底部「保存并应用」（需要 root），抖音回到前台即生效。不推送则用默认：开启 + 鲜艳随机。
 
+## 1.38.1：点按键直接触发长按（无延迟）
+
+见下面 1.38.0 的「怎么弹面板」。主界面 Activity 类名 `com.ss.android.ugc.aweme.main.MainActivity` 已有 TextRec 证据（`LongPressPanelLaunchParams(context=…MainActivity@…)`）。
+
 ## 1.38.0：首页长按改成常驻按键
 
 - **做什么**：首页长按视频不再有任何反应（忽略，不弹分享给朋友、不感兴趣等面板）；首页右侧一直显示一个「面板」按键，样式和点赞 / 评论 / 分享一致（白色实心图标 + 下面一行白字），点它才弹出原来的面板。设置页分组「首页长按改成常驻按键」，一个开关 + 位置。
-- **怎么弹面板**：长按被忽略后抖音不会生成面板对象，所以点按键时模块替用户向窗口发一次合成长按（按下 → 系统长按时间 + 400ms 后抬起），同时把 `armed` 置位放行这一次 `DialogFragment#show`；用户自己的长按 `armed` 为 false，被 `setResult(null)` 跳过。
+- **怎么弹面板**（1.38.1 起无延迟）：点按键时找到当前屏幕上可见面积最大的 `com.ss.android.ugc.aweme.feed.ui.LongPressLayout`，在它（及父类，不含 View）的字段里找「值是 Runnable、类里有个字段类型是 LongPressLayout 且指回这个控件」的那个长按计时任务（混淆类 `X.0tdv`，不用混淆名，有歧义就不动），置 `armed` 后直接 `run()`，同步走完抖音自己的长按流程，钩子放行这一次 `show`。依据 TextRec 40.9.0 `textrec-tasks-20261025-102152`：长按栈是 Handler → `X.0tdv.run` → `Y.AhaS2700S0100000_34.LIZ(float,float)` → `X.10du.LIZIZ/LIZJ` → `LongPressPanelServiceImpl.LJIIZILJ` → … → `show`，全同步；`X.0tdv` 在 `LongPressLayout.<init>` 里创建。找不到计时任务时退回合成长按（有延迟）。用户自己的长按 `armed` 为 false，被 `setResult(null)` 跳过。
 - **按键位置**：和视频时长一样在抖音里调，位置浮窗选「按键」（预览就是新样式）；`lpX / lpY`（dp，左 / 上，-1 = 默认在屏幕右侧、点赞列上方）。
 - **钩子**（`LongPressHook.java`，`lp.show`）：不变，仍是 `DialogFragment#show(FragmentManager, String)`、this 为 `LongPressPanelFragmentImpl`。
-- **局限（没编译、没上机）**：①主界面 Activity 类名 `com.ss.android.ugc.aweme.main.MainActivity` 没有 TextRec 证据，对不上时按键不显示；②合成长按落在窗口中心偏上，抖音的长按识别如果不吃合成事件，点按键弹不出面板；③按键挂在整个主界面上，切到个人页等页面时也在；④没有定时器，只有点一次按键 postDelayed 一条「抬起」。
+- **局限（没编译、没上机）**：①直接 `run()` 没上机：计时任务如果还要读控件上按下时记的状态，没有真实触摸时可能什么都不做；②个人页、直播间里 `LongPressLayout` 的子类也可能被选中，没验证；③按键挂在整个主界面上，切到个人页等页面时也在；④没有定时器，只有点一次按键 postDelayed 一条「抬起」。
 
 ## 1.36.1：冷启动第一次主页默认「喜欢」
 

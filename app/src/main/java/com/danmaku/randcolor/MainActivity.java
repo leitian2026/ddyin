@@ -805,6 +805,7 @@ public class MainActivity extends Activity {
             {"dtap.seen", "双击改评论：识别双击（系统方法）"},
             {"dtap.cut", "双击改评论：拦在点赞之前"},
             {"dtap.click", "双击改评论：不让单击暂停视频"},
+            {"dtap.tap", "双击改评论：抖音自己认出双击时的入口（LongPressLayout#setTapListener）"},
             {"dtap.btn", "双击改评论：评论按钮的类（找不到时双击照常点赞）"},
             {"time.progress", "视频时长：播放进度"},
             {"tab.hide", "首页顶部标签隐藏"},

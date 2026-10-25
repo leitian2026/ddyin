@@ -23,6 +23,16 @@
 ## 使用
 设置页的内容按功能折叠成一个个分组（点标题展开，展开一个其他自动收起；有总开关的分组不用展开就能开关）。前提：LSPosed 里启用模块、作用域勾选抖音、强杀抖音重开；改完点底部「保存并应用」（需要 root），抖音回到前台即生效。不推送则用默认：开启 + 鲜艳随机。
 
+## 1.40.2：点「面板」按键用这一页自己的长按计时任务（视图树确认了页面容器）
+
+- **问题**：1.40.0 / 1.40.1 记下用户上一次长按的数据再回放，数据带着上一个视频的东西；而且那几个类里到底带了什么没人看过，每一版都在猜。
+- **依据**（TextRec 视图树，`textrec-tasks-20261025-205759` 的视图树 #1～#5，首页推荐页、划到下一页前后结构不变）：`LongPressLayout #qbb` 不是按键（`FeedRightScaleView`）的祖先，而是旁边一支的后代，但两者在同一页的同一个 `MonitorScrollFrameLayout #w1m` 下面。长按层：`LongPressLayout → FrameLayout #ran → MeasureOnceCheckDrawChildRelativeLayout #i+m → #w1m`；按键：`FeedRightScaleView → MeasureOnceCheckDrawChildRelativeLayout #i+t → PenetrateTouchRelativeLayout #i6 → #w1m`。每页一个 `#w1m`，里面一个 `LongPressLayout`、一个 `FeedRightScaleView`（常驻当前页和预加载页两页）。`MonitorScrollFrameLayout` 类名没混淆。1.39.4 一直不能确认的「`LongPressLayout` 在不在页面里」，确认了：在。
+- **改法**：`lp.go`（记长按数据）整个删除，换成 `lp.lay`（同一个下标 18）。`LongPressLayout` 的所有构造方法 after，只对类正好是 `LongPressLayout` 的控件挂一个单例 `OnAttachStateChangeListener`；挂到窗口时往上找最近的 `MonitorScrollFrameLayout`（类名比较，最多 10 层），登记「页面容器 → 这个控件（弱引用）」。点按键：从按键往上找最近的 `MonitorScrollFrameLayout`，`WeakHashMap` 取一次，读它的长按计时任务字段，`armed = true`，`run()`，`lp.show` 放行这一次。不遍历视图树，不记视频数据，换视频每页用的都是自己的。
+- **计时任务字段怎么认**（整个进程只认一次，之后读缓存的 `Field`）：`LongPressLayout`（及抖音自己的父类，不含 `android.*`）的实例字段里，值是 `Runnable`、它的类里有一个字段类型是 `LongPressLayout` 且值正好是这个控件。只有一个才认；0 个或多个 → `lp.lay` 记成未适配，设置页能看到，按键隐藏，长按照常弹面板。
+- **失败时**：`lp.lay` 没挂上 / 认不出计时任务字段 → 不放按键、不拦长按；这一页没登记 / 控件已不在窗口上 → 点按键什么都不做，没有任何退路。
+- **`HookGuard`**：`LP_GO` / `lp.go` 改成 `LP_LAY` / `lp.lay`；`lp.lay` 的匹配规则变了，`RULES_REV` 5 → 6。
+- **局限（没编译、没上机）**：①直接 `run()` 没有真实触摸：计时任务（或它往下的 `Y.AhaS2700S0100000_34.LIZ(float, float)`）如果还要读控件上按下时记的坐标 / 状态，没有触摸时可能什么都不做，或者坐标是 0——**上机第一件事**：点按键看有没有面板、面板是不是当前这个视频，没有就把点按键前后用 TextRec 追 `X.0tdv#run` 和 `LongPressLayout` 的触摸方法。②登记发生在 `LongPressLayout` 挂到窗口那一刻：钩子装上之前就已经挂好的页（冷启动的当前页常见）不会登记，划一下换页或重开抖音才有。③构造方法互相调用，监听器可能被加了几次，每次挂窗口多登记几次同一个值，没有副作用。④只在 40.9.0 一台手机上确认过层级；最近的 `MonitorScrollFrameLayout` 不再同时是两者的祖先会安静失效。⑤`lp.lay` 的字段只在第一页认一次，没验证后面的页是不是同一个字段（同一个类，应该是）。
+
 ## 1.40.1：只记「长按数据」，不记视频信息（1.40.0 的 Params 带着第一个视频，换视频就弹不出）
 
 - **问题**：1.40.0 记的是 `LongPressPanelParams`，它是为那一次长按的视频现造的；换视频再点按键，弹的还是第一个视频的数据，只有第一个视频能弹，其他视频闪一下就没了。

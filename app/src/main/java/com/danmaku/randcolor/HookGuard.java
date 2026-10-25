@@ -90,6 +90,10 @@ final class HookGuard {
         }
     }
 
+    static synchronized boolean isOk(int id) {
+        return state[id] == OK;
+    }
+
     static synchronized boolean settled(int id) {
         return state[id] != NEW;
     }

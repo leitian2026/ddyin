@@ -63,6 +63,11 @@ public final class DanmakuConfig {
     public boolean vidAdjust = false;
     /** 直播间数据那块文字的模板，见 LiveFormat。 */
     public String liveFormat = LiveFormat.DEFAULT;
+    /** 音量浮窗（竖条，见 VolPanel）：开关；大步长那一对 ＋／－ 按一下加减多少（1～100，默认 6；普通那一对固定 ±1）。 */
+    public boolean volOn = false;
+    public int volStep = 6;
+    /** 音量浮窗位置（左 / 上，dp）；-1 = 默认（靠右偏上）。在抖音里直接拖，只存在 dyin_pos.properties。 */
+    public int volX = -1, volY = -1;
     public static final int SIZE_MIN = 8, SIZE_MAX = 40;
     /** 首页顶部标签行里要隐藏的标签（"热点"、"同城"……），取消勾选后要重启抖音才恢复显示。 */
     public String[] hiddenTabs = new String[0];
@@ -87,6 +92,8 @@ public final class DanmakuConfig {
             p.setProperty("capColor", String.valueOf(capColor));
             p.setProperty("nameColor", String.valueOf(nameColor));
             p.setProperty("idleExitMin", String.valueOf(idleExitMin));
+            p.setProperty("volOn", String.valueOf(volOn));
+            p.setProperty("volStep", String.valueOf(volStep));
             p.setProperty("liveTime", String.valueOf(liveTime));
             p.setProperty("liveSrc", String.valueOf(liveSrc));
             p.setProperty("liveSize", String.valueOf(liveSize));
@@ -131,6 +138,8 @@ public final class DanmakuConfig {
             p.setProperty("pubY", String.valueOf(pubY));
             p.setProperty("timeX", String.valueOf(timeX));
             p.setProperty("timeY", String.valueOf(timeY));
+            p.setProperty("volX", String.valueOf(volX));
+            p.setProperty("volY", String.valueOf(volY));
             ByteArrayOutputStream bo = new ByteArrayOutputStream();
             p.store(bo, null);
             return new String(bo.toByteArray(), StandardCharsets.ISO_8859_1);
@@ -146,6 +155,8 @@ public final class DanmakuConfig {
         c.pubY = parsePos(p.getProperty("pubY", String.valueOf(c.pubY)));
         c.timeX = parsePos(p.getProperty("timeX", String.valueOf(c.timeX)));
         c.timeY = parsePos(p.getProperty("timeY", String.valueOf(c.timeY)));
+        c.volX = parsePos(p.getProperty("volX", String.valueOf(c.volX)));
+        c.volY = parsePos(p.getProperty("volY", String.valueOf(c.volY)));
     }
 
     static void applyPos(DanmakuConfig c, File f) {
@@ -221,6 +232,8 @@ public final class DanmakuConfig {
         c.pubY = parsePos(p.getProperty("pubY", "-1"));
         c.timeX = parsePos(p.getProperty("timeX", "-1"));
         c.timeY = parsePos(p.getProperty("timeY", "-1"));
+        c.volOn = Boolean.parseBoolean(p.getProperty("volOn", "false").trim());
+        c.volStep = Math.max(1, Math.min(100, parseIntOr(p.getProperty("volStep", "6"), 6)));
         c.vidAdjust = Boolean.parseBoolean(p.getProperty("vidAdjust", "false").trim());
         c.liveAdjust = Boolean.parseBoolean(p.getProperty("liveAdjust", "false").trim());
         String lf = p.getProperty("liveFormat", LiveFormat.DEFAULT);

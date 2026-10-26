@@ -224,7 +224,7 @@ public final class DanmakuConfig {
         c.vidAdjust = Boolean.parseBoolean(p.getProperty("vidAdjust", "false").trim());
         c.liveAdjust = Boolean.parseBoolean(p.getProperty("liveAdjust", "false").trim());
         String lf = p.getProperty("liveFormat", LiveFormat.DEFAULT);
-        c.liveFormat = lf == null || lf.trim().isEmpty() || lf.equals(LiveFormat.OLD_DEFAULT) ? LiveFormat.DEFAULT : lf; // 存的是 1.40.7 以前的默认模板：换成新默认（带累计 / 在线）
+        c.liveFormat = lf == null || lf.trim().isEmpty() || lf.equals(LiveFormat.OLD_DEFAULT) || lf.equals(LiveFormat.OLD_DEFAULT2) ? LiveFormat.DEFAULT : lf; // 存的是旧默认模板（1.40.7 以前 / 1.40.8）：换成新默认（带累计 / 在线 / 音浪）
         List<String> tabs = split(p.getProperty("hiddenTabs", ""));
         c.hiddenTabs = tabs.toArray(new String[0]);
         try {

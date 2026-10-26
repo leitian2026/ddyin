@@ -249,7 +249,7 @@ public class MainActivity extends Activity {
         tvLivePos = tv("", 13, cSub, false);
         Section sLive = new Section("直播间数据", false, swLive,
                 () -> swLive.isChecked() ? "已开启 · 位置 " + liveX + "% / " + liveY + "%" : "已关闭");
-        sLive.body.addView(note("进直播间时在画面上叠一块文字：开播时间、累计观看人数、在线人数（都是精确数字，不写「10万+」），要哪几项在下面的格式里选。只在直播间里显示，推荐、关注、同城这些界面都不显示。人数是刷新那一刻读到的值，不会自己跳动。重新进直播间生效。"));
+        sLive.body.addView(note("进直播间时在画面上叠一块文字：开播时间、累计观看人数、在线人数（都是精确数字，不写「10万+」），要哪几项在下面的格式里选。只在直播间里显示，推荐、关注、同城这些界面都不显示。在线人数随抖音的人数推送实时更新；累计观看是每次刷新读到的值。重新进直播间生效。"));
         Section sLiveFmt = new Section("来源与格式", true, null, () -> {
             String s = LiveFormat.render(etLiveFmt.getText().toString(), PREVIEW_SEC, 170445L, 3878L);
             return s == null ? "（没有内容）" : "预览：" + oneLine(s);
@@ -806,6 +806,7 @@ public class MainActivity extends Activity {
             {"name.draw", "视频作者名：绘制时改色 / 灰色底"},
             {"live.page", "直播间数据：直播间页面"},
             {"live.room", "直播间数据：进房时收到房间数据（RoomSession）"},
+            {"live.online", "直播间数据：在线人数（LiveRoomAudienceWidget 收到人数推送）"},
             {"prof.pager", "我的主页默认喜欢：记住个人主页的翻页控件（ViewPager#setCurrentItem）"},
             {"prof.enter", "我的主页默认喜欢：点底部「我」时切到喜欢（MainPageFragment$2#onChanged）"},
             {"prof.args", "我的主页默认喜欢：个人页创建时把参数 tab_type 设成喜欢（Fragment#setArguments，MyPandaFragment）"},

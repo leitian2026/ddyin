@@ -50,6 +50,7 @@ public class MainActivity extends Activity {
     private EditText etPkg, etIdle, etVolStep;
     private Switch swVol;
     private CheckBox cbVolHoriz;
+    private VolSizeField volWF, volLF;
     /** 首页顶部标签行里的 13 个标签（来自 TextRec 追踪，40.7.0）；勾选 = 隐藏。 */
     private static final String[] TAB_LABELS = {"推荐", "关注", "热点", "同城", "商城", "经验", "游戏", "少儿", "精选", "团购", "免费看剧", "短剧", "直播"};
     private final CheckBox[] cbTabs = new CheckBox[TAB_LABELS.length];
@@ -339,7 +340,7 @@ public class MainActivity extends Activity {
         etVolStep.setHint("1～100，默认 6");
         watch(etVolStep);
         Section sVol = new Section("音量竖条浮窗", false, swVol,
-                () -> swVol.isChecked() ? "已开启 · " + (cbVolHoriz.isChecked() ? "横放" : "竖放") + " · 大步长 " + etVolStep.getText().toString().trim() : "已关闭");
+                () -> swVol.isChecked() ? "已开启 · " + (cbVolHoriz.isChecked() ? "横放" : "竖放") + " · 大步长 " + etVolStep.getText().toString().trim() + " · 宽 " + volWF.v + " × 长 " + volLF.v + " dp" : "已关闭");
         sVol.body.addView(note("在抖音页面上盖一组按键（没有底板），直接调系统媒体音量，按住最前面的当前音量拖动可以挪位置（位置在抖音里拖，这里不用调）。当前音量块会按音量比例填充绿色电平；后面是两组连体的加减键：橙色是大步长，蓝色是 ±1（固定）。竖放时每组上 ＋ 下 －，横放时每组左 － 右 ＋。"));
         cbVolHoriz = new CheckBox(this);
         cbVolHoriz.setText("横放");
@@ -350,6 +351,14 @@ public class MainActivity extends Activity {
         sVol.body.addView(sub("大步长（按一下加减多少）"));
         sVol.body.addView(note("比如填 6，按一下大步长的 ＋ 就加 6，－ 就减 6；超出音量范围就停在最大 / 最小。改完保存并应用，抖音回到前台后生效。"));
         sVol.body.addView(etVolStep);
+        volWF = new VolSizeField(DanmakuConfig.VOL_W_MIN, DanmakuConfig.VOL_W_MAX, 40);
+        volLF = new VolSizeField(DanmakuConfig.VOL_L_MIN, DanmakuConfig.VOL_L_MAX, 222);
+        sVol.body.addView(sub("宽（条的粗细，dp）"));
+        sVol.body.addView(note("每按一下 ＋ 加 1、－ 减 1。竖放时是条的宽，横放时是条的高。默认 40。"));
+        sVol.body.addView(volWF.build());
+        sVol.body.addView(sub("长（条的总长，dp）"));
+        sVol.body.addView(note("每按一下 ＋ 加 1、－ 减 1。当前音量和各个键按原来的比例一起拉长 / 缩短。默认 222。"));
+        sVol.body.addView(volLF.build());
         place(sVol);
 
         // ================= 高级
@@ -683,6 +692,8 @@ public class MainActivity extends Activity {
         swVol.setChecked(c.volOn);
         etVolStep.setText(String.valueOf(c.volStep));
         cbVolHoriz.setChecked(c.volHoriz);
+        volWF.set(c.volW);
+        volLF.set(c.volL);
         for (int i = 0; i < TAB_LABELS.length; i++) {
             boolean hide = false;
             for (String h : c.hiddenTabs) if (TAB_LABELS[i].equals(h)) hide = true;
@@ -728,6 +739,8 @@ public class MainActivity extends Activity {
         c.lpBtn = swLp.isChecked();
         c.volOn = swVol.isChecked();
         c.volHoriz = cbVolHoriz.isChecked();
+        c.volW = volWF.v;
+        c.volL = volLF.v;
         try {
             c.volStep = Math.max(1, Math.min(100, Integer.parseInt(etVolStep.getText().toString().trim())));
         } catch (Throwable t) {
@@ -936,6 +949,49 @@ public class MainActivity extends Activity {
         c.clear();
         c.set(2026, Calendar.OCTOBER, 19, 11, 50, 0);
         PREVIEW_SEC = c.getTimeInMillis() / 1000L;
+    }
+
+    /** 音量浮窗宽 / 长：「−  N dp  +」，每按一下 ±1，范围 min～max。 */
+    private final class VolSizeField {
+        final int min, max;
+        int v;
+        TextView label;
+
+        VolSizeField(int min, int max, int def) {
+            this.min = min;
+            this.max = max;
+            v = def;
+        }
+
+        View build() {
+            LinearLayout r = new LinearLayout(MainActivity.this);
+            r.setOrientation(LinearLayout.HORIZONTAL);
+            r.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+            TextView minus = pillButton("−", false);
+            minus.setTextSize(20);
+            minus.setOnClickListener(x -> set(v - 1));
+            r.addView(minus, new LinearLayout.LayoutParams(dp(44), dp(40)));
+            label = tv("", 15, cText, true);
+            label.setGravity(Gravity.CENTER);
+            label.setMinWidth(dp(72));
+            r.addView(label, new LinearLayout.LayoutParams(-2, -2));
+            TextView plus = pillButton("+", false);
+            plus.setTextSize(20);
+            plus.setOnClickListener(x -> set(v + 1));
+            r.addView(plus, new LinearLayout.LayoutParams(dp(44), dp(40)));
+            show();
+            return r;
+        }
+
+        void set(int n) {
+            v = Math.max(min, Math.min(max, n));
+            show();
+            refreshSummaries();
+        }
+
+        void show() {
+            if (label != null) label.setText(v + " dp");
+        }
     }
 
     /** 字号行：「−  字号 N sp  +」，范围 SIZE_MIN～SIZE_MAX。 */

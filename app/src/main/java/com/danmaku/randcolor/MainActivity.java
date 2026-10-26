@@ -339,7 +339,7 @@ public class MainActivity extends Activity {
         watch(etVolStep);
         Section sVol = new Section("音量竖条浮窗", false, swVol,
                 () -> swVol.isChecked() ? "已开启 · 大步长 " + etVolStep.getText().toString().trim() : "已关闭");
-        sVol.body.addView(note("在抖音页面上盖一个竖条，直接调系统媒体音量，按住中间的数字拖动可以挪位置（位置在抖音里拖，这里不用调）。从上到下：大步长 ＋、普通 ＋（固定加 1）、当前音量、大步长 －、普通 －（固定减 1）；大步长旁边是大字，普通的旁边是小字。"));
+        sVol.body.addView(note("在抖音页面上盖一个竖条，直接调系统媒体音量，按住中间的数字拖动可以挪位置（位置在抖音里拖，这里不用调）。从上到下：大步长 ＋、普通 ＋（固定加 1）、当前音量、普通 －（固定减 1）、大步长 －；大步长旁边是大字，普通的旁边是小字。"));
         sVol.body.addView(sub("大步长（按一下加减多少）"));
         sVol.body.addView(note("比如填 6，按一下大步长的 ＋ 就加 6，－ 就减 6；超出音量范围就停在最大 / 最小。改完保存并应用，抖音回到前台后生效。"));
         sVol.body.addView(etVolStep);

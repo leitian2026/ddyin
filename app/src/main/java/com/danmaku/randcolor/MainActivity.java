@@ -58,7 +58,7 @@ public class MainActivity extends Activity {
     private ColorField timeColorF, pubColorF, capColorF, nameColorF;
     private final java.util.ArrayList<Block> blocks = new java.util.ArrayList<>();
     private LinearLayout blockList;
-    /** 直播间开播时间：开关、取哪个时间、模板、字号、颜色。位置（百分比）不在设置页调，在抖音里用浮窗拖，这里只存 / 显示。 */
+    /** 直播间数据（开播时间 / 累计观看 / 在线人数）：开关、取哪个时间、模板、字号、颜色。位置（百分比）不在设置页调，在抖音里用浮窗拖，这里只存 / 显示。 */
     private Switch swLive;
     private LinearLayout segLiveSrc;
     private EditText etLiveFmt;
@@ -211,13 +211,13 @@ public class MainActivity extends Activity {
         liftF = new PctField(30);
         bgColorF = new ColorField("默认（近黑）", "选择底色");
         Section sBg = new Section("文字灰色底", false, null, () -> (bgF.v == 0 ? "已关闭" : "不透明度 " + bgF.v + "%") + " · 字最低亮度 " + liftF.v + "%");
-        sBg.body.addView(note("给视频文案、视频时长、发布日期地点、弹幕、直播间开播时间的每一行字加一条半透明底（颜色在下面的「底色」里选，默认近黑），底比字大一个字号（四周各多 1 sp）。0% = 不加。文案的底在文案控件边界处可能被裁掉一点。"));
+        sBg.body.addView(note("给视频文案、视频时长、发布日期地点、弹幕、直播间数据的每一行字加一条半透明底（颜色在下面的「底色」里选，默认近黑），底比字大一个字号（四周各多 1 sp）。0% = 不加。文案的底在文案控件边界处可能被裁掉一点。"));
         sBg.body.addView(settingRow("不透明度", bgF.build()));
         sBg.body.addView(rowLine());
         sBg.body.addView(bgColorF.row("底色"));
         sBg.body.addView(rowLine());
         sBg.body.addView(settingRow("弹幕字的最低亮度", liftF.build()));
-        TextView liftNote = note("弹幕随机色里比这个亮度暗的颜色（蓝、紫、深红）会往白色提亮，100% = 全部接近白色，0% = 不提亮。只管弹幕随机色，自己选的文案 / 时长 / 开播时间颜色不动。");
+        TextView liftNote = note("弹幕随机色里比这个亮度暗的颜色（蓝、紫、深红）会往白色提亮，100% = 全部接近白色，0% = 不提亮。只管弹幕随机色，自己选的文案 / 时长 / 直播间数据颜色不动。");
         liftNote.setPadding(0, dp(6), 0, 0);
         sBg.body.addView(liftNote);
         place(sBg);
@@ -245,21 +245,21 @@ public class MainActivity extends Activity {
 
         swLive = new Switch(this);
         liveSizeF = new SizeField(14);
-        liveColorF = new ColorField("默认（白色）", "选择开播时间颜色");
+        liveColorF = new ColorField("默认（白色）", "选择直播间数据颜色");
         tvLivePos = tv("", 13, cSub, false);
-        Section sLive = new Section("直播间开播时间", false, swLive,
+        Section sLive = new Section("直播间数据", false, swLive,
                 () -> swLive.isChecked() ? "已开启 · 位置 " + liveX + "% / " + liveY + "%" : "已关闭");
-        sLive.body.addView(note("进直播间时在画面上叠一行开播时间，只在直播间里显示，推荐、关注、同城这些界面都不显示。重新进直播间生效。"));
+        sLive.body.addView(note("进直播间时在画面上叠一块文字：开播时间、累计观看人数、在线人数（都是精确数字，不写「10万+」），要哪几项在下面的格式里选。只在直播间里显示，推荐、关注、同城这些界面都不显示。人数是刷新那一刻读到的值，不会自己跳动。重新进直播间生效。"));
         Section sLiveFmt = new Section("来源与格式", true, null, () -> {
-            String s = LiveFormat.render(etLiveFmt.getText().toString(), PREVIEW_SEC);
+            String s = LiveFormat.render(etLiveFmt.getText().toString(), PREVIEW_SEC, 170445L, 3878L);
             return s == null ? "（没有内容）" : "预览：" + oneLine(s);
         });
         sLiveFmt.body.addView(sub("显示哪个时间"));
-        sLiveFmt.body.addView(note("「开播时间」是房间数据里的 startTime（没有就用创建时间）；「房间创建时间」是 createTime，通常比开播早几秒。"));
+        sLiveFmt.body.addView(note("只管 {日期} {时间} {月日} 用哪个时间。「开播时间」是房间数据里的 startTime（没有就用创建时间）；「房间创建时间」是 createTime，通常比开播早几秒。"));
         segLiveSrc = segmented("开播时间", "房间创建时间");
         sLiveFmt.body.addView(segLiveSrc);
         sLiveFmt.body.addView(sub("显示格式"));
-        sLiveFmt.body.addView(note("可用：{日期} 如 2026-10-22，{时间} 如 07:22:36，{月日} 如 10-22；其他文字原样显示，两个字符 \\n 表示换行。"));
+        sLiveFmt.body.addView(note("可用：{日期} 如 2026-10-22，{时间} 如 07:22:36，{月日} 如 10-22，{累计} 累计观看人数如 170445，{在线} 在线人数如 3878；其他文字原样显示，两个字符 \\n 表示换行。某一项取不到就显示「-」。"));
         etLiveFmt = field();
         etLiveFmt.setHint(LiveFormat.DEFAULT);
         watch(etLiveFmt);
@@ -804,8 +804,8 @@ public class MainActivity extends Activity {
             {"pub.anchor", "视频文案：认文案控件 / 容器 / 页面根的类（上顶、改色、灰色底都要）"},
             {"cap.draw", "视频文案：绘制时改色"},
             {"name.draw", "视频作者名：绘制时改色 / 灰色底"},
-            {"live.page", "直播间开播时间：直播间页面"},
-            {"live.room", "直播间开播时间：进房时收到房间数据（RoomSession）"},
+            {"live.page", "直播间数据：直播间页面"},
+            {"live.room", "直播间数据：进房时收到房间数据（RoomSession）"},
             {"prof.pager", "我的主页默认喜欢：记住个人主页的翻页控件（ViewPager#setCurrentItem）"},
             {"prof.enter", "我的主页默认喜欢：点底部「我」时切到喜欢（MainPageFragment$2#onChanged）"},
             {"prof.args", "我的主页默认喜欢：个人页创建时把参数 tab_type 设成喜欢（Fragment#setArguments，MyPandaFragment）"},

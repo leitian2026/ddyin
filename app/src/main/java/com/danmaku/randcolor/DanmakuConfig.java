@@ -34,11 +34,11 @@ public final class DanmakuConfig {
     public int capColor = 0;
     /** 视频作者名的颜色（0xAARRGGBB，不透明）；0 = 不改，用抖音原来的颜色。作者名的灰色底跟「文字灰色底」的不透明度 lineBg 走（0 = 不画）。见 PubHook.NameHook。 */
     public int nameColor = 0;
-    /** 直播间里显示开播时间（只在直播间页面里画，别处不显示）。 */
+    /** 直播间里显示直播间数据：开播时间、累计观看、在线人数（只在直播间页面里画，别处不显示；键名 liveTime 沿用旧名）。 */
     public boolean liveTime = false;
     /** 取哪个时间：0 = 开播时间（没有就用创建时间）  1 = 房间创建时间。 */
     public int liveSrc = 0;
-    /** 开播时间文字的字号（sp）、颜色（0xAARRGGBB 不透明；0 = 默认白色）。 */
+    /** 直播间数据文字的字号（sp）、颜色（0xAARRGGBB 不透明；0 = 默认白色）。 */
     public int liveSize = 14, liveColor = 0;
     /** 位置：文字左上角在「直播页剩余空间」里的百分比，0 = 最左 / 最上，100 = 最右 / 最下（文字始终完整显示在页面里）。 */
     public int liveX = 3, liveY = 10;
@@ -61,7 +61,7 @@ public final class DanmakuConfig {
     public int pubX = -1, pubY = -1, timeX = -1, timeY = -1;
     /** 位置调节模式（发布地 / 时长）：设置页点「去抖音里调整」时置 true，抖音里浮窗点完成 / 取消时改回 false。设置页自己存的配置里永远是 false。 */
     public boolean vidAdjust = false;
-    /** 开播时间那一行的模板，见 LiveFormat。 */
+    /** 直播间数据那块文字的模板，见 LiveFormat。 */
     public String liveFormat = LiveFormat.DEFAULT;
     public static final int SIZE_MIN = 8, SIZE_MAX = 40;
     /** 首页顶部标签行里要隐藏的标签（"热点"、"同城"……），取消勾选后要重启抖音才恢复显示。 */
@@ -224,7 +224,7 @@ public final class DanmakuConfig {
         c.vidAdjust = Boolean.parseBoolean(p.getProperty("vidAdjust", "false").trim());
         c.liveAdjust = Boolean.parseBoolean(p.getProperty("liveAdjust", "false").trim());
         String lf = p.getProperty("liveFormat", LiveFormat.DEFAULT);
-        c.liveFormat = lf == null || lf.trim().isEmpty() ? LiveFormat.DEFAULT : lf;
+        c.liveFormat = lf == null || lf.trim().isEmpty() || lf.equals(LiveFormat.OLD_DEFAULT) ? LiveFormat.DEFAULT : lf; // 存的是 1.40.7 以前的默认模板：换成新默认（带累计 / 在线）
         List<String> tabs = split(p.getProperty("hiddenTabs", ""));
         c.hiddenTabs = tabs.toArray(new String[0]);
         try {

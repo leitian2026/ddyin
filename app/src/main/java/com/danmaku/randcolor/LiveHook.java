@@ -53,7 +53,7 @@ import de.robv.android.xposed.XC_MethodHook;
  *  - Room 类名没混淆；_createTime、startTime 字段名没混淆，startTime 比创建时间晚几秒（上面是 5 秒，一台手机、几个样本）。
  *
  * 匹配规则（都只用没混淆的类型，有歧义就一个都不挂）：RoomSession 里「返回 void、只有一个参数、参数类型就是 Room」的方法必须刚好一个，
- * 并且 RoomSession 里「类型就是 LivePlayFragmentV2」的字段必须刚好一个；否则 miss，功能安静失效（钩子状态页能看到原因）。
+ * 「类型就是 LivePlayFragmentV2」的字段刚好一个就按字段取页面；不是刚好一个（40.9.0 起 0 个）不再 miss，进房时改用屏幕上正在显示的直播页兜底（onRoomVisible，没上机验证）。
  *
  * 没有证据的部分（找不到就安静地不显示，不换别的办法）：
  *  ①LJII 的参数 / 字段的声明类型是不是正好是 Room / LivePlayFragmentV2（TextRec 只给出运行时类型）；不是的话 miss；
@@ -177,15 +177,15 @@ final class LiveHook {
             HookGuard.miss(HookGuard.LIVE_ROOM, "RoomSession 里「返回 void、参数只有一个 Room」的方法有 " + nm + " 个（要刚好 1 个；抖音改了进房流程，需要重新追踪 RoomSession 进房时收到 Room 的那个方法）");
             return;
         }
-        if (nf != 1) {
-            HookGuard.miss(HookGuard.LIVE_ROOM, "RoomSession 里类型是 LivePlayFragmentV2 的字段有 " + nf + " 个（要刚好 1 个；需要重新追踪 RoomSession 的字段）");
-            return;
-        }
-        try {
-            ff.setAccessible(true);
-        } catch (Throwable t) {
-            HookGuard.miss(HookGuard.LIVE_ROOM, "RoomSession 里的页面字段读不了");
-            return;
+        // 页面字段按类型找：正好 1 个就用；0 个或多个（抖音改了字段）不放弃，进房时改用「屏幕上正在显示的直播页」兜底，不依赖 RoomSession 的字段。
+        if (nf == 1) {
+            try {
+                ff.setAccessible(true);
+            } catch (Throwable t) {
+                ff = null;
+            }
+        } else {
+            ff = null;
         }
         roomCls = rc;
         fCreate = ct;
@@ -244,10 +244,10 @@ final class LiveHook {
                 if (Looper.myLooper() != Looper.getMainLooper()) return;
                 Object[] a = p.args;
                 Field ff = fSessFrag;
-                if (p.thisObject == null || a == null || a.length != 1 || a[0] == null || ff == null) return;
-                Object frag = ff.get(p.thisObject);
-                if (frag == null) return;
-                onRoom(frag, a[0]);
+                if (p.thisObject == null || a == null || a.length != 1 || a[0] == null) return;
+                Object frag = ff == null ? null : ff.get(p.thisObject);
+                if (frag != null) onRoom(frag, a[0]);
+                else onRoomVisible(a[0]); // 字段没找到 / 值为空：交给屏幕上正在显示的直播页
             } catch (Throwable ignored) {
             }
         }
@@ -291,6 +291,28 @@ final class LiveHook {
                 return;
             }
         }
+    }
+
+    /**
+     * 兜底：不知道 Room 属于哪个页面时，交给屏幕上露出面积最大的直播页；都不在屏幕上就交给最后记下的那个页面。
+     * 进房方法只在真正进房的那个房间触发（预加载的相邻页面不触发），所以进房时的当前页就是这个房间的页面。主线程。
+     */
+    private static void onRoomVisible(Object room) {
+        Page best = null;
+        int bestArea = 0;
+        for (Page pg : PAGES) {
+            ViewGroup r = rootOf(pg);
+            if (r == null || pg.frag.get() == null) continue;
+            int a = visibleArea(r);
+            if (a > bestArea) {
+                best = pg;
+                bestArea = a;
+            }
+        }
+        if (best == null && !PAGES.isEmpty()) best = PAGES.get(PAGES.size() - 1);
+        if (best == null) return;
+        best.roomRef = new WeakReference<>(room);
+        requestRefresh();
     }
 
     /** 回到前台（配置刚重读过）：按新的开关 / 位置 / 字号 / 颜色 / 格式重新套一遍。 */

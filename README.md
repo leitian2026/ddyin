@@ -23,6 +23,15 @@
 ## 使用
 设置页的内容按功能折叠成一个个分组（点标题展开，展开一个其他自动收起；有总开关的分组不用展开就能开关）。前提：LSPosed 里启用模块、作用域勾选抖音、强杀抖音重开；改完点底部「保存并应用」（需要 root），抖音回到前台即生效。不推送则用默认：开启 + 鲜艳随机。
 
+## 1.40.8：直播间在线人数改成钩人数推送，实时更新
+
+- **依据**：反编译抖音 40.9.0（`classes14/25/30/38/46/52/53.dex`）+ TextRec 40.9.0 `textrec-tasks-20261026-105113`（任务 2，右上角在线人数 `1330`，设置栈）。服务端推 `WebcastRoomStatsMessage`（`RoomStatsMessage`，类名没混淆），`X.0AQo` 的 `LJIIJJI → LJIIJ → LJIIIZ` 处理，最后调 `LiveRoomAudienceWidget#P7(long, String, String, boolean)`：第 2 个参数 `setText` 到右上角 `StrokeTextView`（id `oip`），第 1 个参数是 `data_room_pcu`（日志里叫 `realCount`），第 4 个参数是 `isHidden`。同一方法还把第 2 / 3 个参数存进 `Room.viewStats` 的 `_displayMiddle` / `_displayLong`。更新约 0.4 次 / 秒，主线程。
+- **改法**：新钩子 `live.online`（`HookGuard` 编号 20）。`LiveRoomAudienceWidget` 里「返回 void、参数正好是 `(long, String, String, boolean)`」的方法刚好 1 个、「类型是 `IRoom`」的字段刚好 1 个，否则 `miss`（原因写在设置页钩子状态里）。回调（after）里：取 widget 的房间，用 `Room#getId()` 对到记下的直播页，把参数 0 记成这个页面的在线人数，变了才请求刷新。**不再读 `RoomStats` 的 `nm`**（混淆名、只在刷新时读一次、不会跳）。名字里不出现 `P7` / `LJII`。按开关才挂（直播间数据没开不挂）。`RULES_REV` 不变（只加新钩子）。
+- **取值规则**：用精确的 long（参数 0），不用「1.2万」那种显示文本；参数 1（屏幕上显示的文本）是纯数字时必须等于参数 0，对不上就显示「-」；参数 3（隐藏）为 true 或参数 1 为空，抖音自己把人数藏起来了，这里也显示「-」。没收到过推送（刚进房）显示「-」。
+- **累计观看**：仍然读 `RoomStats#t3`（反编译：`t3()` 读 `total_user`，`mj()` 读 `total_user_str`，`nm()` 读 `user_count_str`，`o3()` 读 `up_right_stats_str`），每次刷新（含每次在线人数推送触发的刷新）读一次当前值；`t3` 是混淆名，读不到显示「-」。累计观看的推送是 `WebcastRoomUserSeqMessage`（`com.bytedance.android.livesdkapi.depend.message.RoomUserSeqMessage`，字段 `__totalUser`），处理它的代码不在这次拿到的 dex 里，还没有钩点。
+- **删掉**：`STAT_ONLINE`（`nm`）和 `onlineOf` / `mOnline`。设置页分组说明改了。
+- **局限（没编译、没上机）**：①参数 0 一定是「在线人数」只有变量名 / 键名 `data_room_pcu` 的旁证，没有用屏幕上的数逐个核对；②widget 的 `IRoom` 字段和 `RoomSession` 交来的 `Room` 是不是同一个房间，按房间 id 对；对不上就一直显示「-」；③`Room#getId()` 是不是房间 id 没有直接证据（`Room` 的 `_id`）；④没有 Android SDK，只对 `LiveFormat` 单独编译运行过，`LiveHook` 等没编译。
+
 ## 1.40.7：直播间数据——删掉探针，加累计观看人数和在线人数；设置分组改名「直播间数据」
 
 - **删掉**：1.40.6 里的临时探针（`LiveHook.probeStats` 和它的 `probeAt` / `probeLast` / `probeGetStats`，每秒枚举 `RoomStats` 所有读取方法并写日志）。

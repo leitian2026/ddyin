@@ -249,9 +249,9 @@ public class MainActivity extends Activity {
         tvLivePos = tv("", 13, cSub, false);
         Section sLive = new Section("直播间数据", false, swLive,
                 () -> swLive.isChecked() ? "已开启 · 位置 " + liveX + "% / " + liveY + "%" : "已关闭");
-        sLive.body.addView(note("进直播间时在画面上叠一块文字：开播时间、累计观看人数、在线人数（都是精确数字，不写「10万+」），要哪几项在下面的格式里选。只在直播间里显示，推荐、关注、同城这些界面都不显示。在线人数随抖音的人数推送实时更新；累计观看是每次刷新读到的值。重新进直播间生效。"));
+        sLive.body.addView(note("进直播间时在画面上叠一块文字：开播时间、累计观看人数、在线人数、音浪（都是精确数字，不写「10万+」），要哪几项在下面的格式里选。只在直播间里显示，推荐、关注、同城这些界面都不显示。在线人数随抖音的人数推送实时更新；累计观看是每次刷新读到的值。重新进直播间生效。"));
         Section sLiveFmt = new Section("来源与格式", true, null, () -> {
-            String s = LiveFormat.render(etLiveFmt.getText().toString(), PREVIEW_SEC, 170445L, 3878L);
+            String s = LiveFormat.render(etLiveFmt.getText().toString(), PREVIEW_SEC, 170445L, 3878L, 5200L);
             return s == null ? "（没有内容）" : "预览：" + oneLine(s);
         });
         sLiveFmt.body.addView(sub("显示哪个时间"));
@@ -259,7 +259,7 @@ public class MainActivity extends Activity {
         segLiveSrc = segmented("开播时间", "房间创建时间");
         sLiveFmt.body.addView(segLiveSrc);
         sLiveFmt.body.addView(sub("显示格式"));
-        sLiveFmt.body.addView(note("可用：{日期} 如 2026-10-22，{时间} 如 07:22:36，{月日} 如 10-22，{累计} 累计观看人数如 170445，{在线} 在线人数如 3878；其他文字原样显示，两个字符 \\n 表示换行。某一项取不到就显示「-」。"));
+        sLiveFmt.body.addView(note("可用：{日期} 如 2026-10-22，{时间} 如 07:22:36，{月日} 如 10-22，{累计} 累计观看人数如 170445，{在线} 在线人数如 3878，{音浪} 如 5200；其他文字原样显示，两个字符 \\n 表示换行。某一项取不到就显示「-」。"));
         etLiveFmt = field();
         etLiveFmt.setHint(LiveFormat.DEFAULT);
         watch(etLiveFmt);

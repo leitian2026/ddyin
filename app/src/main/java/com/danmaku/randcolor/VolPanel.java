@@ -44,10 +44,8 @@ final class VolPanel {
     private VolPanel() {}
 
     private static final String TAG = "dyin_vol";
-    private static final int W_DP = 40;      // 条的粗细（竖放是宽，横放是高）
-    private static final int BTN_DP = 40;    // 一个加 / 减键沿条方向的长度
-    private static final int VAL_DP = 44;    // 当前音量块沿条方向的长度
-    private static final int SEP_DP = 8;     // 组与组之间的间隔
+    // 沿条方向的各段按比例分配总长（设置页的「长」）：当前音量 44 : 间隔 8 : 一组 81 : 间隔 8 : 一组 81 = 222，默认长度 222 dp 时就是原来的尺寸
+    private static final float VAL_W = 44f, SEP_W = 8f, PAIR_W = 81f;
     private static final int GAP_DP = 1;     // 同一组加减键之间的缝
     private static final int OUT_R = 12, IN_R = 4; // 同组键的外侧 / 内侧圆角（dp）
     private static final int ORANGE_TOP = 0xF0FFA24A, ORANGE_BOT = 0xF0F26A0A, ORANGE_DOWN = 0xFFB84A00;
@@ -66,15 +64,16 @@ final class VolPanel {
             return;
         }
         if (old instanceof Bar) {
-            if (((Bar) old).step == Math.max(1, Math.min(100, DanmakuHook.cfg.volStep)) && ((Bar) old).horiz == DanmakuHook.cfg.volHoriz) {
+            Bar ob = (Bar) old;
+            if (ob.step == Math.max(1, Math.min(100, DanmakuHook.cfg.volStep)) && ob.horiz == DanmakuHook.cfg.volHoriz
+                    && ob.wDp == DanmakuHook.cfg.volW && ob.lDp == DanmakuHook.cfg.volL) {
                 ((Bar) old).placeAndRefresh();
                 return;
             }
-            decor.removeView(old); // 设置页改了步长 / 方向：重建
+            decor.removeView(old); // 设置页改了步长 / 方向 / 大小：重建
         }
         Bar bar = new Bar(decor.getContext());
-        int th = dp(decor.getContext(), W_DP);
-        decor.addView(bar, new FrameLayout.LayoutParams(bar.horiz ? -2 : th, bar.horiz ? th : -2, Gravity.TOP | Gravity.START));
+        decor.addView(bar, new FrameLayout.LayoutParams(bar.barW(), bar.barH(), Gravity.TOP | Gravity.START));
         bar.placeAndRefresh();
     }
 
@@ -85,6 +84,7 @@ final class VolPanel {
         private final Val tvVal;
         private final int step, max;
         private final boolean horiz;
+        private final int wDp, lDp; // 建的时候的宽 / 长（dp），设置页改了就重建
         private float downRawX, downRawY;
         private int startL, startT;
         private boolean receiverOn;
@@ -108,6 +108,8 @@ final class VolPanel {
             max = Math.max(1, am.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
             step = Math.max(1, Math.min(100, DanmakuHook.cfg.volStep));
             horiz = DanmakuHook.cfg.volHoriz;
+            wDp = Math.max(DanmakuConfig.VOL_W_MIN, Math.min(DanmakuConfig.VOL_W_MAX, DanmakuHook.cfg.volW));
+            lDp = Math.max(DanmakuConfig.VOL_L_MIN, Math.min(DanmakuConfig.VOL_L_MAX, DanmakuHook.cfg.volL));
             setTag(TAG);
             setOrientation(horiz ? HORIZONTAL : VERTICAL);
             // 没有底板、自己也不吃触摸：只有各个键和读数吃，键之间的空隙还是抖音页面的
@@ -123,21 +125,28 @@ final class VolPanel {
                     }
                 }
             });
-            addView(tvVal, lp(ctx, VAL_DP));
-            addView(spacer(ctx, SEP_DP));
+            addView(tvVal, lp(VAL_W));
+            addView(spacer(ctx, SEP_W));
             addView(pair(ctx, step, true));
-            addView(spacer(ctx, SEP_DP));
+            addView(spacer(ctx, SEP_W));
             addView(pair(ctx, 1, false));
         }
 
-        /** 沿条方向 mainDp、另一方向撑满的布局参数。 */
-        private LayoutParams lp(Context ctx, int mainDp) {
-            return horiz ? new LayoutParams(dp(ctx, mainDp), -1) : new LayoutParams(-1, dp(ctx, mainDp));
+        /** 沿条方向按权重 weight 分、另一方向撑满的布局参数。 */
+        private LayoutParams lp(float weight) {
+            return horiz ? new LayoutParams(0, -1, weight) : new LayoutParams(-1, 0, weight);
         }
 
-        private View spacer(Context ctx, int mainDp) {
+        private View spacer(Context ctx, float weight) {
             View v = new View(ctx);
-            v.setLayoutParams(lp(ctx, mainDp));
+            v.setLayoutParams(lp(weight));
+            return v;
+        }
+
+        /** 同组加减键之间的缝：固定 GAP_DP。 */
+        private View gap(Context ctx) {
+            View v = new View(ctx);
+            v.setLayoutParams(horiz ? new LayoutParams(dp(ctx, GAP_DP), -1) : new LayoutParams(-1, dp(ctx, GAP_DP)));
             return v;
         }
 
@@ -148,15 +157,15 @@ final class VolPanel {
             View plus = button(ctx, "＋" + n, n, big, horiz ? false : true);
             View minus = button(ctx, "－" + n, -n, big, horiz ? true : false);
             if (horiz) {
-                g.addView(minus, lp(ctx, BTN_DP));
-                g.addView(spacer(ctx, GAP_DP));
-                g.addView(plus, lp(ctx, BTN_DP));
+                g.addView(minus, lp(1f));
+                g.addView(gap(ctx));
+                g.addView(plus, lp(1f));
             } else {
-                g.addView(plus, lp(ctx, BTN_DP));
-                g.addView(spacer(ctx, GAP_DP));
-                g.addView(minus, lp(ctx, BTN_DP));
+                g.addView(plus, lp(1f));
+                g.addView(gap(ctx));
+                g.addView(minus, lp(1f));
             }
-            g.setLayoutParams(lp(ctx, BTN_DP * 2 + GAP_DP));
+            g.setLayoutParams(lp(PAIR_W));
             return g;
         }
 
@@ -235,15 +244,11 @@ final class VolPanel {
         }
 
         private int barW() {
-            return horiz ? len() : dp(getContext(), W_DP);
+            return dp(getContext(), horiz ? lDp : wDp);
         }
 
         private int barH() {
-            return horiz ? dp(getContext(), W_DP) : len();
-        }
-
-        private int len() {
-            return dp(getContext(), VAL_DP + SEP_DP * 2 + (BTN_DP * 2 + GAP_DP) * 2);
+            return dp(getContext(), horiz ? wDp : lDp);
         }
 
         private void applyMargins(int l, int t, int pw, int ph) {

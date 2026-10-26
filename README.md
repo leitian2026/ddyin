@@ -23,6 +23,14 @@
 ## 使用
 设置页的内容按功能折叠成一个个分组（点标题展开，展开一个其他自动收起；有总开关的分组不用展开就能开关）。前提：LSPosed 里启用模块、作用域勾选抖音、强杀抖音重开；改完点底部「保存并应用」（需要 root），抖音回到前台即生效。不推送则用默认：开启 + 鲜艳随机。
 
+## 1.41.0：音量竖条浮窗
+
+- **功能**：设置页新分组「音量浮窗」，打开后抖音的每个页面上盖一个竖条，直接调系统媒体音量。从上到下：大步长 ＋（旁边大字 = 步长）、普通 ＋（旁边小字 1）、当前音量、大步长 －、普通 －。普通那一对固定 ±1；大步长在设置页自定义（1～100，默认 6，比如填 6 就是按一下加 6 / 减 6）。按住中间的数字拖动挪位置，位置（dp）存在 `dyin_pos.properties`（`volX` / `volY`），设置页「保存并应用」不会冲掉。
+- **音量怎么接**：参考 VolFloat（root2）里「接系统音量」的部分，只取这一块：`AudioManager` 的 `STREAM_MUSIC`，`getStreamVolume` / `getStreamMaxVolume` / `setStreamVolume(…, 0)`（flags = 0，不弹系统音量条）；系统音量被实体键等改了，靠广播 `android.media.VOLUME_CHANGED_ACTION` 刷新读数（接收器跟着浮窗挂到窗口 / 离开窗口注册、注销）。root2 的前台应用判断、日志、长按连发、开机自启等都没带。
+- **不是钩子**：没有新钩子、没有 `HookGuard` 编号，不动任何匹配规则（`RULES_REV` 不变）。只在 `DanmakuHook.hookResume` 已经挂着的 `Activity.onResume` 里多调一句 `VolPanel.onResume(a)`：开关开着就确保这个窗口里有浮窗（挂在窗口根 `FrameLayout` 上，不需要悬浮窗权限），关着就撤掉；改了步长回到前台时重建。没有定时器、没有轮询、没有长按连发。
+- **失败时**：窗口根不是 `FrameLayout` 就不显示；音量操作抛异常就什么都不做，不影响抖音。没有兜底路径。
+- **局限（没编译、没上机）**：没有 Android SDK，没编译；①浮窗是每个抖音页面各一个（Activity 级别），不是全局悬浮窗，抖音里打开的任何页面都会有；②`VOLUME_CHANGED_ACTION` 是系统隐藏广播，个别 ROM 不发的话读数只在自己按按钮时刷新。
+
 ## 1.40.9：直播间累计观看不再用混淆名，改按协议字段名读；加「音浪」
 
 - **依据**：TextRec 40.8.0 `textrec-tasks-20261026-170321`（`RoomStats` 的数据树，抖音 40.9.0 的 `textrec-tasks-20261026-094600` 里这几层字段名一样）。`RoomStats.userCompositionDelegate.dataNode` 是数据节点；`dataNode.metaForSerialization.d` 是「编号 → 字段说明」表，说明里有 `protoName` 和 `tag`，实测 `tag 3 = fan_ticket`、`4 = money`、`5 = total_user`、`6 = gift_uv_count`、`15 = total_user_str`；`dataNode.fieldValues.dataHolder` 里的 `keyTable`（int[]）和 `valueTable`（Object[]）是真实值。`RoomStats` 自己的 `totalUser` / `ticket` 字段一直是 0（空壳），不能读。

@@ -23,7 +23,7 @@ import android.widget.TextView;
  * AudioManager 的 STREAM_MUSIC（getStreamVolume / getStreamMaxVolume / setStreamVolume，flags = 0 不弹系统音量条），
  * 系统音量变了（实体键 / 别处改）靠广播 android.media.VOLUME_CHANGED_ACTION 刷新读数。
  *
- * 从上到下：大步长 ＋（旁边大字 = 步长）、普通 ＋（旁边小字 1）、当前音量（拖这里挪浮窗）、大步长 －、普通 －。
+ * 从上到下：大步长 ＋（旁边大字 = 步长）、普通 ＋（旁边小字 1）、当前音量（拖这里挪浮窗）、普通 －、大步长 －。
  * 大步长在设置页自定义（volStep，1～100）；普通那一对固定 ±1。
  *
  * 不是钩子：不挂任何方法，只在 Activity.onResume（DanmakuHook.hookResume 已经挂着的框架方法）里被调到；没有定时器、没有轮询，
@@ -34,7 +34,7 @@ final class VolPanel {
     private VolPanel() {}
 
     private static final String TAG = "dyin_vol";
-    private static final int W_DP = 84, ROW_DP = 46, VAL_DP = 40;
+    private static final int W_DP = 42, ROW_DP = 46, VAL_DP = 40;
 
     /** 每次回到前台：开着就确保这个窗口里有浮窗（有就只刷新位置和读数），关着就撤掉。主线程。 */
     static void onResume(Activity a) {
@@ -89,16 +89,16 @@ final class VolPanel {
             setClickable(true); // 自己吃触摸，不传给下面的抖音页面
             GradientDrawable bg = new GradientDrawable();
             bg.setColor(Color.argb(210, 30, 30, 30));
-            bg.setCornerRadius(dp(ctx, 22));
+            bg.setCornerRadius(dp(ctx, 16));
             setBackground(bg);
-            setPadding(dp(ctx, 4), dp(ctx, 4), dp(ctx, 4), dp(ctx, 4));
+            setPadding(dp(ctx, 2), dp(ctx, 4), dp(ctx, 2), dp(ctx, 4));
 
             addView(row(ctx, "＋", String.valueOf(step), true, step));
             addView(row(ctx, "＋", "1", false, 1));
 
             tvVal = new TextView(ctx);
             tvVal.setTextColor(Color.WHITE);
-            tvVal.setTextSize(18);
+            tvVal.setTextSize(15);
             tvVal.setTypeface(null, Typeface.BOLD);
             tvVal.setGravity(Gravity.CENTER);
             tvVal.setOnTouchListener(new OnTouchListener() {
@@ -113,8 +113,8 @@ final class VolPanel {
             });
             addView(tvVal, new LayoutParams(-1, dp(ctx, VAL_DP)));
 
-            addView(row(ctx, "－", String.valueOf(step), true, -step));
             addView(row(ctx, "－", "1", false, -1));
+            addView(row(ctx, "－", String.valueOf(step), true, -step));
         }
 
         /** 一行：符号 + 旁边的数字（大步长是大字，普通的是小字）；按一下 = 音量加 / 减 delta。 */
@@ -126,13 +126,13 @@ final class VolPanel {
             TextView s = new TextView(ctx);
             s.setText(sign);
             s.setTextColor(Color.WHITE);
-            s.setTextSize(big ? 24 : 20);
+            s.setTextSize(big ? 16 : 14);
             s.setGravity(Gravity.CENTER);
-            r.addView(s, new LayoutParams(dp(ctx, 30), -1));
+            r.addView(s, new LayoutParams(dp(ctx, 16), -1));
             TextView n = new TextView(ctx);
             n.setText(num);
             n.setTextColor(big ? Color.WHITE : 0xFF9AA1B2);
-            n.setTextSize(big ? 24 : 11);
+            n.setTextSize(big ? 14 : 9);
             n.setTypeface(null, big ? Typeface.BOLD : Typeface.NORMAL);
             n.setGravity(Gravity.CENTER);
             r.addView(n, new LayoutParams(0, -1, 1f));

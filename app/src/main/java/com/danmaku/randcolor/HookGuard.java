@@ -34,7 +34,7 @@ final class HookGuard {
     static final String[] IDS = {"paint", "time.progress", "tab.hide", "pub.text", "pub.bind", "pub.anchor", "dtap.seen", "dtap.cut", "cap.draw", "dtap.click", "live.page", "live.room", "prof.pager", "dtap.btn", "name.draw", "prof.enter", "lp.show", "lp.col", "lp.lay", "prof.args"};
 
     /** 匹配规则改了就加一：已经放弃的钩子会重新试一次。 */
-    private static final int RULES_REV = 9;
+    private static final int RULES_REV = 10;
     /** 类一直找不到时，最多试几次（每次回到前台一次）。 */
     private static final int MAX_WAIT = 6;
 

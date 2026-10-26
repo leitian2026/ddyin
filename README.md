@@ -23,6 +23,23 @@
 ## 使用
 设置页的内容按功能折叠成一个个分组（点标题展开，展开一个其他自动收起；有总开关的分组不用展开就能开关）。前提：LSPosed 里启用模块、作用域勾选抖音、强杀抖音重开；改完点底部「保存并应用」（需要 root），抖音回到前台即生效。不推送则用默认：开启 + 鲜艳随机。
 
+## 1.40.7：开播时间——页面创建时登记它自己的数据容器，没有任何扫描 / 遍历
+
+- **为什么**：1.25 到 1.40.5 从页面出发在对象图里搜 Room，1.40.6 换成遍历 `ViewModelStore` 找 `DataCenterV2`，两个都是扫描，违反「没有扫描」。这版全部删掉。
+- **依据**：TextRec 40.9.0 `textrec-tasks-20261026-082029`：每个直播页创建时静态方法 `com.bytedance.android.live.core.tetris.layer.core.data.DataCenterV2#create(ViewModelProvider, LivePlayFragmentV2)` 被调用，`arg1` 是这个页面，返回值是它自己的 `DataCenterV2`（类名、方法名没混淆）。`textrec-tasks-20261026-081316`：`create` 在 14768ms，页面 `onViewCreated` 在 14926ms，早约 160ms。`textrec-tasks-20261026-014155`：页面创建时页面字段里指向 Room 的混淆路径是 `null`，所以不能靠页面字段找。`textrec-tasks-20261026-013452` 的对象归属：Fragment ↔ `DataCenterV2` ↔ `dataStore{data_room}` 的 Room 一一对应。
+- **抖音自己不画开播时间**：两份记录里直播间设置过的文字没有一条带开播 / 日期 / 时分秒（082029 里还追了值，`getStartTimeFlex` 只在首页直播预览里被读），所以没有可钩的「画」，文字还是 dyin 叠在页面上，时间从 Room 取。
+- **改法**：新钩子 `live.dc`（`HookGuard.LIVE_DC = 20`，`MainActivity` 钩子状态里有显示名）：`create` after，只登记「页面 → `DataCenterV2`」（弱引用）；`create` 先于页面登记时先放弱键 Map，页面登记时取走。刷新时直接读 `DataCenterV2.dataStore["data_room"]`，不遍历、不搜索，Room 不缓存。没登记 / 没有 Room 就不显示，没有补救。只加新钩子，`RULES_REV` 没动。
+- **触发没变**：`Room#getCreateTime`、页面布局变化、回到前台。记录里 `getCreateTime` 在新直播页 `create` 之后约 0.3 秒被读到（任务 2：create 36325ms，getCreateTime 36655ms），所以数据到页面这一侧的时间应该在 0.3～0.4 秒内，不是之前的约 1 秒。这一条是按记录里的时间推的，没上机验证。
+- **局限（没编译、没上机）**：`create` 没钩上（类或方法改了）时设置页能看到 `live.dc` 不是 ✓，功能安静不显示；`dataStore` 字段名或 `data_room` 这个 key 抖音改了就读不到；`dataStore` 里 `data_room` 要比 `getCreateTime` 的第一次读更早放进去，才能 0.3 秒内显示，这点没有记录证实。
+
+## 1.40.6（已被 1.40.7 取代，别装）：开播时间——取 Room 时遍历 ViewModelStore，仍是扫描
+
+- **为什么换**：之前从页面（fragment）出发，在对象图里按类型搜 Room（深度 ≤ 4、最多 400 个对象、每页最多搜 30 次，找到两个不同的 Room 就当认不出）。搜得到搜不到取决于对象图当时的样子，一直时好时坏，前面几个版本都是在这上面加触发点。
+- **依据**：TextRec 40.9.0 `textrec-tasks-20261026-013452` 的「对象归属」——每个 `LivePlayFragmentV2` 的 `getViewModelStore()` 里有一个自己的 `DataCenterV2`，它的 `dataStore` 里 key 为 `data_room` 的值就是这一页的 Room，三者一一对应（`Room@d82f8d8 ← Fragment@cb0af27`，`Room@d19ff7e ← Fragment@705dcc6`）。`textrec-tasks-20261026-014155` 里页面建好时（`onCreate` / `onViewCreated` / `onResume`）fragment 字段里指向 Room 的那条混淆路径是 `null`，旧搜索走的就是字段路径。
+- **改法**：`LiveHook` 里删掉 `search` / `walk` / 跳过名单 / 搜索次数和节流，换成 `roomOf`：`Fragment#getViewModelStore`（androidx 公开方法）→ 它里面存 ViewModel 的 Map（按类型找字段，不依赖字段名）→ 类名是 `DataCenterV2` 的那个 → `dataStore` → `data_room`。Room 不缓存，每次刷新现读。没有混淆名，没有新钩子，没有定时器；`HookGuard` 编号和 `RULES_REV` 没动。
+- **没变的**：数据什么时候到、什么时候触发刷新，还是 `Room#getCreateTime`、页面布局变化、回到前台。所以第一个直播间要等进房数据回来这段时间（TextRec 记录里点击到出现约 1.5 秒，页面建好到出现约 1 秒）**没有变短**；这次只是让「找到 Room」不再看对象图的运气。
+- **局限（没编译、没上机）**：`DataCenterV2` 的类名按「结尾是 `.DataCenterV2`」认，不依赖包名；`dataStore` 字段、`data_room` key 抖音改了就读不到，安静不显示。`DataCenterV2` 里 `dataStore` 在主线程以外被写时，读到的可能是旧值，下一次刷新会再读。`ViewModelStore` 里 Map 字段不止一个时取第一个。
+
 ## 1.40.5：个人主页默认「喜欢」——个人页创建时改参数，让抖音自己选「喜欢」
 
 - **问题**：现有的 `prof.enter` 在点「我」之后对分页控件调 `setCurrentItem(99, false)`，是在抖音的默认标签流程之外硬切，页面和抖音自己记的状态可能不一致。

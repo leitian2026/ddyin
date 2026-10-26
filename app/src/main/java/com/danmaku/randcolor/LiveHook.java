@@ -14,8 +14,6 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.Map;
-import java.util.WeakHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import de.robv.android.xposed.XC_MethodHook;
@@ -25,7 +23,7 @@ import de.robv.android.xposed.XC_MethodHook;
  * 只在直播间页面里画：文字挂在每个直播间页面（LivePlayFragmentV2）自己的根控件的 ViewOverlay 上，页面没了文字就没了，别的界面碰不到。
  * 挂在页面自己身上还有一个好处：上下滑切直播间时，每个房间的文字跟着自己的页面走，不用判断「当前是哪个房间」。
  *
- * 依据（TextRec，抖音 40.7.0，textrec-tasks-20261022-073711，这台手机冷启动进直播间 / 切到另一个直播间 / 退出再进）：
+ * 依据一（TextRec，抖音 40.7.0，textrec-tasks-20261022-073711，这台手机冷启动进直播间 / 切到另一个直播间 / 退出再进）：
  *  - 房间数据类 com.bytedance.android.livesdkapi.depend.model.live.Room，类名没混淆，TextRec 报「钩点可用」。另一个包名
  *    com.bytedance.android.live.base.model.live.Room 在 40.7.0 里不存在，不用管。
  *  - Room#getCreateTime() 被调用到，返回秒级时间戳（#13 / #14），和字段快照里的 this._createTime 一致（同一个房间都是 1792624951）。
@@ -37,34 +35,30 @@ import de.robv.android.xposed.XC_MethodHook;
  *  - 直播间页面：页面标签 LivePlayActivity > LivePlayFragmentV2；LivePlayFragmentV2#onViewCreated(View, Bundle) 在 #9 的调用栈里
  *    （LivePlayFragmentV2.onViewCreated ← Fragment.performViewCreated），类名方法名都没混淆，TextRec 标 [稳定]；#7 的栈
  *    LiveVerticalViewPager.finishUpdate → commitNowAllowingStateLoss → LivePlayFragmentV2.onCreate：上下滑的每个房间一个页面（fragment）。
- *  - #7：CommonRoomContext#<init> 里会 new 一个 Room（调用栈第 1 层）。（1.40.6 前页面靠它在对象图里按类型搜 Room，现在不再用，见下面。）
  *
- * 做法：
- *  - live.page：LivePlayFragmentV2#onViewCreated 之后，记下这个页面（弱引用）和它的根控件，请求刷新。
- *  - live.room：Room#getCreateTime 之后请求刷新（Room 数据来了 / 被读了；任意线程，回调里只置一个标志、往主线程发一条消息）。
- *  - 刷新（主线程）：对每个已记下的页面，取它自己的 Room（见 roomOf），读 startTime / _createTime，
- *    套模板，设到叠在页面根控件上的 TextView 里，并按位置百分比放好。
+ * 做法（1.40.6 起，不再在对象图里搜 Room，也不再等 getCreateTime）：
+ *  - live.page：LivePlayFragmentV2#onViewCreated 之后，记下这个页面（弱引用）和它的根控件。
+ *  - live.room：RoomSession 里「参数是 Room 的 void 方法」（TextRec 里叫 LJII，EnterRoomTaskV1 进房时调用）之后，
+ *    从 this 里按类型取出这个房间的 LivePlayFragmentV2、从参数取出 Room，记在对应页面上，请求刷新。
+ *  - 刷新（主线程）：对每个已记下的页面，读它 Room 的 startTime / _createTime，套模板，设到叠在页面根控件上的 TextView 里，并按位置百分比放好。
  *
- * 页面取 Room 的办法（1.40.7）——不扫描、不遍历，只靠钩子回调里已经拿到的对象：
- *  - 依据 TextRec 40.9.0 textrec-tasks-20261026-082029：每个直播页创建时，静态方法
- *    com.bytedance.android.live.core.tetris.layer.core.data.DataCenterV2#create(ViewModelProvider, LivePlayFragmentV2) 被调用，
- *    参数 arg1 就是这个页面，返回值就是它自己的 DataCenterV2（类名、方法名没混淆）；时间上比页面的 onViewCreated 早约 160ms
- *    （textrec-tasks-20261026-081316：create 14768ms，onViewCreated 14926ms）。这一刻页面里指向 Room 的字段还是 null
- *    （textrec-tasks-20261026-014155），所以不能靠页面的字段找 Room。
- *  - live.dc：DataCenterV2#create after：登记「页面 → 它的 DataCenterV2」（弱引用）。
- *  - 刷新时读登记的 DataCenterV2 的 dataStore（字段名没混淆，HashMap）里 key 为 data_room 的值，就是这一页的 Room
- *    （textrec-tasks-20261026-013452 的对象归属：Fragment ↔ DataCenterV2 ↔ Room 一一对应）。Room 不缓存，每次现读。
- *  - 抖音自己不在直播间里画开播时间（两份记录里直播间设置过的文字没有一条带开播 / 日期 / 时分秒），没有可钩的「画」，
- *    所以文字还是我们自己叠在页面上，时间从 Room 取。
- *  - 触发没变：Room#getCreateTime、页面布局变化、回到前台。记录里新进直播页之后 getCreateTime 在 create 之后约 0.3 秒被读到
- *    （任务 1：点击 14209ms，getCreateTime 15260ms；任务 2：create 36325ms，getCreateTime 36655ms）。
- *  - 以前（1.25～1.40.6）从页面出发在对象图里搜 Room、后来改成遍历 ViewModelStore 找 DataCenterV2，都是扫描，已经全部删掉。
+ * 依据二（TextRec 40.9.0，textrec-tasks-20261026-083921 / -084459 / -084821，冷启动进直播间）：
+ *  - 页面建好（onViewCreated）7343ms；同一个房间的 Room 在 RoomSession#LJII(Room) 7640ms 到位：此时 Room 的 _createTime / startTime 已有值
+ *    （-084821 的树里同一个房间 _createTime = 1792963217、startTime = 1792963222，arg0 就是 this.LJLLJ）。
+ *    LJII 的调用栈是 EnterRoomTaskV1.LIZ → X.12Qf.LIZ → X.12Qf.LJ，主线程，耗时 5ms。
+ *  - 旧触发点太晚：这个房间的 Room#getCreateTime 第一次被调用是 9617ms（主线程，jsbridge BaseInfoMethod），比 LJII 晚约 2 秒；
+ *    更早的几次 getCreateTime 在后台线程，返回的是别的房间（预加载）的时间。LJII 之前的 RoomSession#LJIILJJIL(Room) 里 Room 还是空壳（startTime = 0），不能用。
+ *  - 同一个页面（LivePlayFragmentV2）在 RoomSession 里有一个字段（TextRec 里叫 LJLJLLL），值就是这个房间的页面；字段名混淆，所以按类型找。
+ *  - 上下滑预加载的相邻页面也有 RoomSession，但它们没进房（没有 LJII 调用），进房时才会触发，所以每个房间的文字跟着自己的页面走。
+ *  - Room 类名没混淆；_createTime、startTime 字段名没混淆，startTime 比创建时间晚几秒（上面是 5 秒，一台手机、几个样本）。
  *
- * 没有证据的部分（所以做成「找不到就安静地不显示」，不乱猜）：
- *  ①页面没登记到 DataCenterV2（create 没钩上 / 钩子比页面晚）、dataStore 里没有 data_room、里面不是 Room，都当「还没有」，不显示，下一次刷新再读，没有任何补救；
+ * 匹配规则（都只用没混淆的类型，有歧义就一个都不挂）：RoomSession 里「返回 void、只有一个参数、参数类型就是 Room」的方法必须刚好一个，
+ * 并且 RoomSession 里「类型就是 LivePlayFragmentV2」的字段必须刚好一个；否则 miss，功能安静失效（钩子状态页能看到原因）。
+ *
+ * 没有证据的部分（找不到就安静地不显示，不换别的办法）：
+ *  ①LJII 的参数 / 字段的声明类型是不是正好是 Room / LivePlayFragmentV2（TextRec 只给出运行时类型）；不是的话 miss；
  *  ②页面根控件是不是 ViewGroup（不是就不显示）；叠在根控件上的文字会不会被页面里别的全屏控件盖住；
- *  ③Room 是原地填数据还是被换成新对象：Room 不缓存，每次刷新都重新从 dataStore 里取，换了也读得到；
- *  ④startTime 是不是「观众看到的开播时间」——所以设置页里可以改成显示房间创建时间。
+ *  ③startTime 是不是「观众看到的开播时间」——所以设置页里可以改成显示房间创建时间。
  *
  * 位置调节（1.24.0）：设置页不再调位置。设置页点「去抖音里调整」后配置里 liveAdjust = true，进直播间时这里照常放文字
  * （时间还没取到 / 开关没开也放一行示例文字），并把当前在屏幕上的页面交给 LivePosPanel：它在窗口最上层盖一层触摸层和一个小浮窗，
@@ -79,13 +73,9 @@ final class LiveHook {
     /** 版本相关（40.7.0），类名都没混淆，依据见文件头。 */
     private static final String FRAG = "com.bytedance.android.livesdk.chatroom.LivePlayFragmentV2";
     private static final String ROOM = "com.bytedance.android.livesdkapi.depend.model.live.Room";
+    private static final String SESS = "com.bytedance.android.livesdk.chatroom.room.RoomSession";
 
     private static final int MAX_PAGES = 6;       // 同时记住的直播间页面（上下滑时前后几个页面都在）
-
-    /** 页面自己的数据容器（类名、create 方法名没混淆）、它里面存数据的 Map 字段（没混淆）、Map 里放 Room 的 key。依据见文件头。 */
-    private static final String DC_CLASS = "com.bytedance.android.live.core.tetris.layer.core.data.DataCenterV2";
-    private static final String DC_STORE = "dataStore";
-    private static final String KEY_ROOM = "data_room";
 
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final AtomicBoolean PENDING = new AtomicBoolean();
@@ -101,15 +91,7 @@ final class LiveHook {
     };
 
     private static final XC_MethodHook PAGE_HOOK = new PageHook();
-    private static final XC_MethodHook ROOM_HOOK = new RoomHook();
-    private static final XC_MethodHook DC_HOOK = new DcHook();
-
-    private static final HookGuard.Filter DC_CREATE = new HookGuard.Filter() {
-        @Override
-        public boolean ok(Method m) {
-            return m.getName().equals("create") && Modifier.isStatic(m.getModifiers()) && m.getReturnType() == m.getDeclaringClass();
-        }
-    };
+    private static final XC_MethodHook SESS_HOOK = new SessionHook();
 
     private static final HookGuard.Filter VIEW_CREATED = new HookGuard.Filter() {
         @Override
@@ -123,12 +105,8 @@ final class LiveHook {
     /** Room 类和两个时间字段：安装阶段按名字找好并缓存，回调里只做取值。 */
     private static Class<?> roomCls;
     private static Field fStart, fCreate;
-
-    /** DataCenterV2.dataStore：第一次用到时按名字查好缓存（只在主线程的刷新里用）。 */
-    private static Field fDcStore;
-
-    /** create 先于页面的 onViewCreated：先放这里，页面登记时取走。只在主线程用。 */
-    private static final WeakHashMap<Object, WeakReference<Object>> PENDING_DC = new WeakHashMap<>();
+    /** RoomSession 里类型就是 LivePlayFragmentV2 的那个字段：安装阶段按类型找好，回调里只取值。 */
+    private static Field fSessFrag;
 
     /** 已记下的直播间页面。只在主线程用。 */
     private static final ArrayList<Page> PAGES = new ArrayList<>();
@@ -138,11 +116,10 @@ final class LiveHook {
         // 都用弱引用：页面根控件（onViewCreated 的参数）和叠在它上面的文字。强引用会把已经退出的直播间界面（连带 Activity）留在内存里。
         WeakReference<ViewGroup> rootRef;
         WeakReference<TextView> tvRef;
-        WeakReference<Object> dc;             // 这个页面自己的 DataCenterV2（DataCenterV2#create 登记）
         View.OnLayoutChangeListener ll;
+        WeakReference<Object> roomRef;        // 这个页面的 Room（进房时 RoomSession 交过来的）；弱引用
         int lx = Integer.MIN_VALUE, ly, lw, lh;   // 上次放的位置
         int size = -1, color = Integer.MIN_VALUE; // 上次套的字号 / 颜色
-        boolean waiting;                          // 页面在、开关开着，但还没取到时间：页面布局一变就再试一次
         boolean adj;                              // 文字上现在是不是带着「调节模式」的底色
 
         Page(Object frag) {
@@ -158,30 +135,70 @@ final class LiveHook {
         hookRoom(cl);
         HookGuard.hook(HookGuard.LIVE_PAGE, FRAG, VIEW_CREATED, PAGE_HOOK,
                 "LivePlayFragmentV2 里没有 onViewCreated(View, Bundle)（直播间页面改了，需要重新追踪页面和调用栈）", cl);
-        HookGuard.hook(HookGuard.LIVE_DC, DC_CLASS, DC_CREATE, DC_HOOK,
-                "DataCenterV2 里没有返回自己的静态 create 方法（直播间页面的数据容器改了，需要重新追踪页面创建时的调用）", cl);
     }
 
     private static void hookRoom(ClassLoader cl) {
         if (HookGuard.settled(HookGuard.LIVE_ROOM)) return;
-        if (!DanmakuHook.cfg.liveTime && !DanmakuHook.cfg.liveAdjust) return; // 开播时间没开：不挂 Room.getCreateTime（没有结论，打开后回到前台再挂）
-        Class<?> rc = HookGuard.find(HookGuard.LIVE_ROOM, ROOM, cl);
-        if (rc == null) return;
-        Field fc = null, fs = null;
+        if (!DanmakuHook.cfg.liveTime && !DanmakuHook.cfg.liveAdjust) return; // 开播时间没开：不挂（没有结论，打开后回到前台再挂）
+        Class<?> sc = HookGuard.find(HookGuard.LIVE_ROOM, SESS, cl);
+        if (sc == null) return;
+        Class<?> rc, fc;
         try {
-            fc = timeField(rc, "_createTime");
-            fs = timeField(rc, "startTime");
-        } catch (Throwable ignored) {
+            rc = Class.forName(ROOM, false, cl);
+            fc = Class.forName(FRAG, false, cl);
+        } catch (Throwable t) {
+            HookGuard.waitFail(HookGuard.LIVE_ROOM); // Room / 页面类还没就绪：下次回到前台再试
+            return;
         }
-        if (fc == null && fs == null) {
+        Field ct = null, st = null, ff = null;
+        int nm = 0, nf = 0;
+        try {
+            ct = timeField(rc, "_createTime");
+            st = timeField(rc, "startTime");
+            for (Method m : sc.getDeclaredMethods()) {
+                Class<?>[] t = m.getParameterTypes();
+                if (m.getReturnType() == void.class && t.length == 1 && t[0] == rc) nm++;
+            }
+            for (Field f : sc.getDeclaredFields()) {
+                if (!Modifier.isStatic(f.getModifiers()) && f.getType() == fc) {
+                    ff = f;
+                    nf++;
+                }
+            }
+        } catch (Throwable t) { // 方法 / 字段签名里引用的类还没就绪
+            HookGuard.waitFail(HookGuard.LIVE_ROOM);
+            return;
+        }
+        if (ct == null && st == null) {
             HookGuard.miss(HookGuard.LIVE_ROOM, "Room 里没有 _createTime / startTime 这两个时间字段（房间数据类改了，需要重新追踪字段快照）");
             return;
         }
+        if (nm != 1) {
+            HookGuard.miss(HookGuard.LIVE_ROOM, "RoomSession 里「返回 void、参数只有一个 Room」的方法有 " + nm + " 个（要刚好 1 个；抖音改了进房流程，需要重新追踪 RoomSession 进房时收到 Room 的那个方法）");
+            return;
+        }
+        if (nf != 1) {
+            HookGuard.miss(HookGuard.LIVE_ROOM, "RoomSession 里类型是 LivePlayFragmentV2 的字段有 " + nf + " 个（要刚好 1 个；需要重新追踪 RoomSession 的字段）");
+            return;
+        }
+        try {
+            ff.setAccessible(true);
+        } catch (Throwable t) {
+            HookGuard.miss(HookGuard.LIVE_ROOM, "RoomSession 里的页面字段读不了");
+            return;
+        }
         roomCls = rc;
-        fCreate = fc;
-        fStart = fs;
-        HookGuard.hook(HookGuard.LIVE_ROOM, ROOM, HookGuard.named("getCreateTime"), ROOM_HOOK,
-                "Room 里没有 getCreateTime（房间数据类改了，需要重新追踪）", cl);
+        fCreate = ct;
+        fStart = st;
+        fSessFrag = ff;
+        final Class<?> room = rc;
+        HookGuard.hook(HookGuard.LIVE_ROOM, SESS, new HookGuard.Filter() {
+            @Override
+            public boolean ok(Method m) {
+                Class<?>[] t = m.getParameterTypes();
+                return m.getReturnType() == void.class && t.length == 1 && t[0] == room;
+            }
+        }, SESS_HOOK, "RoomSession 里没有进房时收到 Room 的方法（抖音改了进房流程，需要重新追踪）", cl);
     }
 
     /** 按名字在类（和父类）里找一个数值字段；找不到或不是数值返回 null。 */
@@ -215,43 +232,22 @@ final class LiveHook {
         }
     }
 
-    /** 直播页创建时：页面是 create 的参数，页面自己的 DataCenterV2 是返回值。只登记，不读任何字段。 */
-    private static final class DcHook extends XC_MethodHook {
+    /**
+     * 进房：RoomSession 收到这个房间的 Room（此时 startTime / _createTime 已有值）。取出它的页面，把 Room 记在页面上，请求刷新。
+     * 回调里只做：两次类型判断、一次字段取值、一次弱引用分配、一条（合并过的）主线程消息；不搜对象图、不打日志。
+     */
+    private static final class SessionHook extends XC_MethodHook {
         @Override
         protected void afterHookedMethod(MethodHookParam p) {
             try {
+                if (!DanmakuHook.cfg.liveTime && !DanmakuHook.cfg.liveAdjust) return;
                 if (Looper.myLooper() != Looper.getMainLooper()) return;
-                Object dc = p.getResult();
                 Object[] a = p.args;
-                if (dc == null || a == null) return;
-                Object frag = null;
-                for (Object o : a) {
-                    if (o != null && o.getClass().getName().equals(FRAG)) {
-                        frag = o;
-                        break;
-                    }
-                }
+                Field ff = fSessFrag;
+                if (p.thisObject == null || a == null || a.length != 1 || a[0] == null || ff == null) return;
+                Object frag = ff.get(p.thisObject);
                 if (frag == null) return;
-                for (Page pg : PAGES) {
-                    if (pg.frag.get() == frag) {
-                        pg.dc = new WeakReference<>(dc);
-                        requestRefresh();
-                        return;
-                    }
-                }
-                PENDING_DC.put(frag, new WeakReference<>(dc));
-            } catch (Throwable ignored) {
-            }
-        }
-    }
-
-    /** Room 的数据被读了：请求刷新。回调里不分配对象、不反射，只发一条（合并过的）主线程消息。 */
-    private static final class RoomHook extends XC_MethodHook {
-        @Override
-        protected void afterHookedMethod(MethodHookParam p) {
-            try {
-                if (!DanmakuHook.cfg.liveTime) return;
-                if (PENDING.compareAndSet(false, true)) MAIN.post(REFRESH);
+                onRoom(frag, a[0]);
             } catch (Throwable ignored) {
             }
         }
@@ -278,13 +274,23 @@ final class LiveHook {
         if (pg == null) {
             if (PAGES.size() >= MAX_PAGES) dispose(PAGES.remove(0)); // 最早记下的那个
             pg = new Page(frag);
-            pg.dc = PENDING_DC.remove(frag);
             PAGES.add(pg);
         } else {
             dispose(pg); // 同一个页面重建了视图：旧根控件上的文字撤掉
         }
         pg.rootRef = new WeakReference<>(root);
         requestRefresh();
+    }
+
+    /** 这个页面的房间数据到了：记在页面上（页面还没记下就什么都不做），请求刷新。主线程。 */
+    private static void onRoom(Object frag, Object room) {
+        for (Page pg : PAGES) {
+            if (pg.frag.get() == frag) {
+                pg.roomRef = new WeakReference<>(room);
+                requestRefresh();
+                return;
+            }
+        }
     }
 
     /** 回到前台（配置刚重读过）：按新的开关 / 位置 / 字号 / 颜色 / 格式重新套一遍。 */
@@ -321,7 +327,6 @@ final class LiveHook {
             ensureListener(pg, root);
             long sec = timeOf(pg, c.liveSrc);
             String text = sec > 0 ? LiveFormat.render(c.liveFormat, sec) : null;
-            pg.waiting = text == null;
             if (text == null && adj) text = LiveFormat.render(c.liveFormat, System.currentTimeMillis() / 1000L); // 调位置时没取到时间也放一行示例
             if (text == null) {
                 hide(pg);
@@ -350,45 +355,13 @@ final class LiveHook {
 
     // ------------------------------------------------------------ 找 Room、读时间
 
-    /** 这个页面的开播时间（秒）；还没有 Room / 数据还没来 / 数据不合理都返回 0。 */
+    /** 这个页面的开播时间（秒）；Room 还没交过来 / 数据不合理都返回 0。 */
     private static long timeOf(Page pg, int src) {
-        Object room = roomOf(pg);
-        long st = 0, ct = 0;
-        if (room != null) {
-            st = secOf(fStart, room);
-            ct = secOf(fCreate, room);
-        }
+        Object room = pg.roomRef != null ? pg.roomRef.get() : null;
+        if (room == null) return 0;
+        long st = secOf(fStart, room), ct = secOf(fCreate, room);
         if (src == 1) return ct;
         return st > 0 ? st : ct;
-    }
-
-    /**
-     * 这个页面的 Room：登记的 DataCenterV2 的 dataStore 里 key 为 data_room 的值。页面没登记 / 还没有就返回 null。
-     * 不遍历、不搜索；Room 不缓存，每次现读（数据来了可能换对象）。
-     */
-    private static Object roomOf(Page pg) {
-        Class<?> rc = roomCls;
-        Object dc = pg.dc == null ? null : pg.dc.get();
-        if (rc == null || dc == null) return null;
-        try {
-            if (fDcStore == null) {
-                for (Class<?> c = dc.getClass(); c != null && c != Object.class && fDcStore == null; c = c.getSuperclass()) {
-                    try {
-                        Field f = c.getDeclaredField(DC_STORE);
-                        f.setAccessible(true);
-                        fDcStore = f;
-                    } catch (NoSuchFieldException ignored) {
-                    }
-                }
-                if (fDcStore == null) return null;
-            }
-            Object ds = fDcStore.get(dc);
-            if (!(ds instanceof Map)) return null;
-            Object r = ((Map<?, ?>) ds).get(KEY_ROOM);
-            return rc.isInstance(r) ? r : null;
-        } catch (Throwable ignored) {
-            return null;
-        }
     }
 
     /** 读一个时间字段，换算成秒；读不到、不是合理的时间戳（2001 年到 2065 年之外）返回 0。 */
@@ -445,7 +418,7 @@ final class LiveHook {
         place(pg);
     }
 
-    /** 页面根控件的布局监听：页面尺寸变了重放文字；还没取到时间时（房间数据后到），页面布局一变就再试一次。第一次见到页面就注册，不等文字显示。 */
+    /** 页面根控件的布局监听：页面尺寸变了重放文字（调位置时再请求一次刷新，给浮窗）。第一次见到页面就注册，不等文字显示。 */
     private static void ensureListener(final Page pg, ViewGroup root) {
         if (pg.ll != null) return;
         pg.ll = new View.OnLayoutChangeListener() {
@@ -453,7 +426,7 @@ final class LiveHook {
             public void onLayoutChange(View v, int l, int tp, int r, int b, int ol, int ot, int or, int ob) {
                 try {
                     place(pg);
-                    if (pg.waiting || DanmakuHook.cfg.liveAdjust) requestRefresh();
+                    if (DanmakuHook.cfg.liveAdjust) requestRefresh();
                 } catch (Throwable ignored) {
                 }
             }

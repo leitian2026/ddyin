@@ -14,11 +14,11 @@ import android.widget.TextView;
 import java.lang.ref.WeakReference;
 
 /**
- * 直播间开播时间的「位置浮窗」：设置页不再调位置，改成在抖音的直播间里直接拖。
+ * 直播间数据（开播时间 / 累计观看 / 在线人数）的「位置浮窗」：设置页不再调位置，改成在抖音的直播间里直接拖。
  *
  * 流程：设置页点「去抖音里调整」→ 把 liveAdjust = true 推给抖音并打开抖音 → 进直播间后，LiveHook 发现 liveAdjust，
  * 把当前在屏幕上的直播间页面交给 {@link #sync}，这里在它所在窗口的最上层盖一层半透明触摸层 + 一个小浮窗：
- *  - 在屏幕任意位置按住拖动：开播时间文字跟着手指走（按页面剩余空间的百分比换算，和平时放文字用的是同一个公式）；
+ *  - 在屏幕任意位置按住拖动：直播间数据文字跟着手指走（按页面剩余空间的百分比换算，和平时放文字用的是同一个公式）；
  *  - 浮窗里 ◀ ▶ ▲ ▼ 微调 1%，「默认」回到 3% / 10%，「取消」回到打开时的位置，「完成」保存；
  *  - 浮窗标题可以拖，挡住文字时把它挪开。
  * 完成 / 取消都会把 liveAdjust 改回 false 并写回抖音自己的配置文件，设置页回到前台时用 root 读回新位置。
@@ -165,7 +165,7 @@ final class LivePosPanel {
         panel.setBackground(round(ctx, DARK, 18));
         panel.setClickable(true); // 浮窗自己吃触摸，不传给下面的触摸层
 
-        TextView head = label(ctx, "开播时间位置  ·  拖这里挪浮窗", 12, 0xFF9AA1B2, false);
+        TextView head = label(ctx, "直播间数据位置  ·  拖这里挪浮窗", 12, 0xFF9AA1B2, false);
         head.setPadding(0, 0, 0, dp(ctx, 6));
         head.setOnTouchListener(new View.OnTouchListener() {
             @Override

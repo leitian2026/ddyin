@@ -68,6 +68,9 @@ public final class DanmakuConfig {
     public int volStep = 6;
     /** 音量浮窗横放（默认竖放）：横放时从左到右 = 当前音量、大步长 ＋、＋1、－1、大步长 －。 */
     public boolean volHoriz = false;
+    /** 音量浮窗大小（dp）：宽 = 条的粗细（竖放是宽、横放是高），长 = 条沿方向的总长；设置页里每按一下 ±1。默认 40 × 222 就是原来的大小。 */
+    public static final int VOL_W_MIN = 20, VOL_W_MAX = 120, VOL_L_MIN = 120, VOL_L_MAX = 800;
+    public int volW = 40, volL = 222;
     /** 音量浮窗位置（左 / 上，dp）；-1 = 默认（靠右偏上）。在抖音里直接拖，只存在 dyin_pos.properties。 */
     public int volX = -1, volY = -1;
     public static final int SIZE_MIN = 8, SIZE_MAX = 40;
@@ -97,6 +100,8 @@ public final class DanmakuConfig {
             p.setProperty("volOn", String.valueOf(volOn));
             p.setProperty("volStep", String.valueOf(volStep));
             p.setProperty("volHoriz", String.valueOf(volHoriz));
+            p.setProperty("volW", String.valueOf(volW));
+            p.setProperty("volL", String.valueOf(volL));
             p.setProperty("liveTime", String.valueOf(liveTime));
             p.setProperty("liveSrc", String.valueOf(liveSrc));
             p.setProperty("liveSize", String.valueOf(liveSize));
@@ -238,6 +243,8 @@ public final class DanmakuConfig {
         c.volOn = Boolean.parseBoolean(p.getProperty("volOn", "false").trim());
         c.volStep = Math.max(1, Math.min(100, parseIntOr(p.getProperty("volStep", "6"), 6)));
         c.volHoriz = Boolean.parseBoolean(p.getProperty("volHoriz", "false").trim());
+        c.volW = Math.max(VOL_W_MIN, Math.min(VOL_W_MAX, parseIntOr(p.getProperty("volW", "40"), 40)));
+        c.volL = Math.max(VOL_L_MIN, Math.min(VOL_L_MAX, parseIntOr(p.getProperty("volL", "222"), 222)));
         c.vidAdjust = Boolean.parseBoolean(p.getProperty("vidAdjust", "false").trim());
         c.liveAdjust = Boolean.parseBoolean(p.getProperty("liveAdjust", "false").trim());
         String lf = p.getProperty("liveFormat", LiveFormat.DEFAULT);

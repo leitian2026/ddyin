@@ -12,7 +12,7 @@
 
 7. **发布日期和地点常显**（1.18.0）：1.21.0 起是在作者声明上方单独显示一行，没有作者声明的视频就显示在声明本来的位置。数据取自视频本身（`Aweme` 的发布时间和 IP 属地），不用点「展开」。1.22.0 起内容和顺序可以自定义（1.22.1 起是积木列表：日期 / 时间 / 地点 / 省 / 市 / 自己写的文字 / 换行，↑ ↓ 调顺序），不限长度、不截断，字号和颜色可调。
 
-8. **直播间显示开播时间**（1.23.0）：进直播间时叠一行开播时间，只在直播间里显示；字号、颜色、格式在设置页调，**位置（1.24.0 起）在抖音的直播间里用浮窗拖**。
+8. **直播间显示开播时间**（1.23.0；1.40.6 起房间数据一到就显示）：进直播间时叠一行开播时间，只在直播间里显示；字号、颜色、格式在设置页调，**位置（1.24.0 起）在抖音的直播间里用浮窗拖**。
 
 ## 开发规范
 新增钩子 / 新功能前先读 [`HOOKS.md`](HOOKS.md)（钩子自检的 6 步和硬性规则）；AI 助手的入口是 [`AGENTS.md`](AGENTS.md)。
@@ -23,22 +23,13 @@
 ## 使用
 设置页的内容按功能折叠成一个个分组（点标题展开，展开一个其他自动收起；有总开关的分组不用展开就能开关）。前提：LSPosed 里启用模块、作用域勾选抖音、强杀抖音重开；改完点底部「保存并应用」（需要 root），抖音回到前台即生效。不推送则用默认：开启 + 鲜艳随机。
 
-## 1.40.7：开播时间——页面创建时登记它自己的数据容器，没有任何扫描 / 遍历
+## 1.40.6：直播间开播时间——房间数据一到就显示，不再等 `getCreateTime`、不再搜对象图
 
-- **为什么**：1.25 到 1.40.5 从页面出发在对象图里搜 Room，1.40.6 换成遍历 `ViewModelStore` 找 `DataCenterV2`，两个都是扫描，违反「没有扫描」。这版全部删掉。
-- **依据**：TextRec 40.9.0 `textrec-tasks-20261026-082029`：每个直播页创建时静态方法 `com.bytedance.android.live.core.tetris.layer.core.data.DataCenterV2#create(ViewModelProvider, LivePlayFragmentV2)` 被调用，`arg1` 是这个页面，返回值是它自己的 `DataCenterV2`（类名、方法名没混淆）。`textrec-tasks-20261026-081316`：`create` 在 14768ms，页面 `onViewCreated` 在 14926ms，早约 160ms。`textrec-tasks-20261026-014155`：页面创建时页面字段里指向 Room 的混淆路径是 `null`，所以不能靠页面字段找。`textrec-tasks-20261026-013452` 的对象归属：Fragment ↔ `DataCenterV2` ↔ `dataStore{data_room}` 的 Room 一一对应。
-- **抖音自己不画开播时间**：两份记录里直播间设置过的文字没有一条带开播 / 日期 / 时分秒（082029 里还追了值，`getStartTimeFlex` 只在首页直播预览里被读），所以没有可钩的「画」，文字还是 dyin 叠在页面上，时间从 Room 取。
-- **改法**：新钩子 `live.dc`（`HookGuard.LIVE_DC = 20`，`MainActivity` 钩子状态里有显示名）：`create` after，只登记「页面 → `DataCenterV2`」（弱引用）；`create` 先于页面登记时先放弱键 Map，页面登记时取走。刷新时直接读 `DataCenterV2.dataStore["data_room"]`，不遍历、不搜索，Room 不缓存。没登记 / 没有 Room 就不显示，没有补救。只加新钩子，`RULES_REV` 没动。
-- **触发没变**：`Room#getCreateTime`、页面布局变化、回到前台。记录里 `getCreateTime` 在新直播页 `create` 之后约 0.3 秒被读到（任务 2：create 36325ms，getCreateTime 36655ms），所以数据到页面这一侧的时间应该在 0.3～0.4 秒内，不是之前的约 1 秒。这一条是按记录里的时间推的，没上机验证。
-- **局限（没编译、没上机）**：`create` 没钩上（类或方法改了）时设置页能看到 `live.dc` 不是 ✓，功能安静不显示；`dataStore` 字段名或 `data_room` 这个 key 抖音改了就读不到；`dataStore` 里 `data_room` 要比 `getCreateTime` 的第一次读更早放进去，才能 0.3 秒内显示，这点没有记录证实。
-
-## 1.40.6（已被 1.40.7 取代，别装）：开播时间——取 Room 时遍历 ViewModelStore，仍是扫描
-
-- **为什么换**：之前从页面（fragment）出发，在对象图里按类型搜 Room（深度 ≤ 4、最多 400 个对象、每页最多搜 30 次，找到两个不同的 Room 就当认不出）。搜得到搜不到取决于对象图当时的样子，一直时好时坏，前面几个版本都是在这上面加触发点。
-- **依据**：TextRec 40.9.0 `textrec-tasks-20261026-013452` 的「对象归属」——每个 `LivePlayFragmentV2` 的 `getViewModelStore()` 里有一个自己的 `DataCenterV2`，它的 `dataStore` 里 key 为 `data_room` 的值就是这一页的 Room，三者一一对应（`Room@d82f8d8 ← Fragment@cb0af27`，`Room@d19ff7e ← Fragment@705dcc6`）。`textrec-tasks-20261026-014155` 里页面建好时（`onCreate` / `onViewCreated` / `onResume`）fragment 字段里指向 Room 的那条混淆路径是 `null`，旧搜索走的就是字段路径。
-- **改法**：`LiveHook` 里删掉 `search` / `walk` / 跳过名单 / 搜索次数和节流，换成 `roomOf`：`Fragment#getViewModelStore`（androidx 公开方法）→ 它里面存 ViewModel 的 Map（按类型找字段，不依赖字段名）→ 类名是 `DataCenterV2` 的那个 → `dataStore` → `data_room`。Room 不缓存，每次刷新现读。没有混淆名，没有新钩子，没有定时器；`HookGuard` 编号和 `RULES_REV` 没动。
-- **没变的**：数据什么时候到、什么时候触发刷新，还是 `Room#getCreateTime`、页面布局变化、回到前台。所以第一个直播间要等进房数据回来这段时间（TextRec 记录里点击到出现约 1.5 秒，页面建好到出现约 1 秒）**没有变短**；这次只是让「找到 Room」不再看对象图的运气。
-- **局限（没编译、没上机）**：`DataCenterV2` 的类名按「结尾是 `.DataCenterV2`」认，不依赖包名；`dataStore` 字段、`data_room` key 抖音改了就读不到，安静不显示。`DataCenterV2` 里 `dataStore` 在主线程以外被写时，读到的可能是旧值，下一次刷新会再读。`ViewModelStore` 里 Map 字段不止一个时取第一个。
+- **问题**（用户：「会延迟显示」）：1.25.2 以前的触发点只有「页面建好」和「读 `Room#getCreateTime`」；页面建好时房间数据还没来，`getCreateTime` 又要等到抖音的网页桥接代码去读才有，中间没有事件，只能等页面布局再变化时重试。
+- **依据**（TextRec 40.9.0，`textrec-tasks-20261026-083921`、`-084459`、`-084821`，冷启动进直播间）：页面 `onViewCreated` 7343ms；同一个房间的 `RoomSession#LJII(Room)`（`EnterRoomTaskV1` 进房时调用，主线程，5ms）在 7640ms，此时 `Room` 的 `_createTime` / `startTime` 已有值（树里 `1792963217` / `1792963222`，`arg0` 就是 `this.LJLLJ`）；这个房间的 `getCreateTime` 第一次被调用在 9617ms，晚约 2 秒，更早几次在后台线程、返回的是预加载的别的房间的时间。`LJII` 之前的 `LJIILJJIL(Room)` 里 `Room` 还是空壳（`startTime = 0`）。`RoomSession` 里有一个字段的值就是这个房间的 `LivePlayFragmentV2`（TextRec 里叫 `LJLJLLL`）。相邻的预加载页面也有 `RoomSession`，但进房前没有 `LJII` 调用。
+- **改法**：`live.room` 钩子换成 `RoomSession` 里「返回 void、只有一个参数、参数类型是 `Room`」的方法（after）：从 `this` 里取出类型是 `LivePlayFragmentV2` 的字段（安装阶段按类型找好并缓存）得到页面，把参数里的 `Room` 以弱引用记在对应页面上，请求刷新；刷新直接读这个 `Room` 的 `startTime` / `_createTime`。**删掉**：`Room#getCreateTime` 钩子、从页面出发在对象图里搜 `Room` 的整段（`search` / `walk` / `MAX_SCANS`…）、页面布局变化时「还没取到时间就再试一次」。名字都不用混淆的（`LJII` / `LJLJLLL` 不出现在代码里）。
+- **匹配规则**：`RoomSession` 里「void、一个参数、参数类型就是 `Room`」的方法必须刚好 1 个，「类型就是 `LivePlayFragmentV2`」的字段必须刚好 1 个，否则 `miss`（原因写在设置页钩子状态里），功能安静失效。`HookGuard.RULES_REV` 8 → 9（旧的 `live.room` 已放弃的会重试一次）。`live.room` 的 id、编号不变，设置页显示名改了。
+- **局限（没编译、没上机）**：①TextRec 只给出运行时类型，`LJII` 的参数 / `RoomSession` 的页面字段的**声明类型**是不是正好是 `Room` / `LivePlayFragmentV2` 没有证据，不是的话 `miss`，设置页钩子状态会写原因；②`RoomSession` 里除 `LJII` 外有没有别的「void + 一个 `Room` 参数」的方法不知道（TextRec 只列出被调用过的），有就 `miss`；③`LJII` 执行时 `startTime` 是已经有值还是执行中才填，证据只有「执行后树里有值」，回调是 after，所以不影响；④进房前页面还没记下（`onViewCreated` 在 `LJII` 之后）时这次不显示，三次冷启动里页面都比 `LJII` 早 200～700ms；⑤`startTime` 是不是观众看到的开播时间仍然只有几个样本。
 
 ## 1.40.5：个人主页默认「喜欢」——个人页创建时改参数，让抖音自己选「喜欢」
 

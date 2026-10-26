@@ -23,7 +23,8 @@ import android.widget.TextView;
  * AudioManager 的 STREAM_MUSIC（getStreamVolume / getStreamMaxVolume / setStreamVolume，flags = 0 不弹系统音量条），
  * 系统音量变了（实体键 / 别处改）靠广播 android.media.VOLUME_CHANGED_ACTION 刷新读数。
  *
- * 从上到下：当前音量（拖这里挪浮窗）、大步长 ＋（旁边大字 = 步长）、普通 ＋（旁边小字 1）、普通 －、大步长 －。
+ * 从上到下（横放时从左到右）：当前音量（拖这里挪浮窗）、大步长 ＋（旁边大字 = 步长）、普通 ＋（旁边小字 1）、普通 －、大步长 －。
+ * 横放 / 竖放在设置页选（volHoriz），改了之后浮窗回到前台时重建。
  * 大步长在设置页自定义（volStep，1～100）；普通那一对固定 ±1。
  *
  * 不是钩子：不挂任何方法，只在 Activity.onResume（DanmakuHook.hookResume 已经挂着的框架方法）里被调到；没有定时器、没有轮询，
@@ -49,14 +50,15 @@ final class VolPanel {
             return;
         }
         if (old instanceof Bar) {
-            if (((Bar) old).step == Math.max(1, Math.min(100, DanmakuHook.cfg.volStep))) {
+            if (((Bar) old).step == Math.max(1, Math.min(100, DanmakuHook.cfg.volStep)) && ((Bar) old).horiz == DanmakuHook.cfg.volHoriz) {
                 ((Bar) old).placeAndRefresh();
                 return;
             }
-            decor.removeView(old); // 设置页改了步长：重建
+            decor.removeView(old); // 设置页改了步长 / 方向：重建
         }
         Bar bar = new Bar(decor.getContext());
-        decor.addView(bar, new FrameLayout.LayoutParams(dp(decor.getContext(), W_DP), -2, Gravity.TOP | Gravity.START));
+        int th = dp(decor.getContext(), W_DP);
+        decor.addView(bar, new FrameLayout.LayoutParams(bar.horiz ? -2 : th, bar.horiz ? th : -2, Gravity.TOP | Gravity.START));
         bar.placeAndRefresh();
     }
 
@@ -66,6 +68,7 @@ final class VolPanel {
         private final AudioManager am;
         private final TextView tvVal;
         private final int step;
+        private final boolean horiz;
         private float downRawX, downRawY;
         private int startL, startT;
         private boolean receiverOn;
@@ -88,8 +91,9 @@ final class VolPanel {
             am = (AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
             step = Math.max(1, Math.min(100, DanmakuHook.cfg.volStep));
             setTag(TAG);
-            setOrientation(VERTICAL);
-            setGravity(Gravity.CENTER_HORIZONTAL);
+            horiz = DanmakuHook.cfg.volHoriz;
+            setOrientation(horiz ? HORIZONTAL : VERTICAL);
+            setGravity(horiz ? Gravity.CENTER_VERTICAL : Gravity.CENTER_HORIZONTAL);
             setClickable(true); // 自己吃触摸，不传给下面的抖音页面
             GradientDrawable bg = new GradientDrawable();
             bg.setColor(Color.argb(210, 30, 30, 30));
@@ -112,7 +116,7 @@ final class VolPanel {
                     }
                 }
             });
-            addView(tvVal, new LayoutParams(-1, dp(ctx, VAL_DP)));
+            addView(tvVal, horiz ? new LayoutParams(dp(ctx, VAL_DP), -1) : new LayoutParams(-1, dp(ctx, VAL_DP)));
 
             addView(row(ctx, "＋", String.valueOf(step), true, step));
             addView(row(ctx, "＋", "1", false, 1));
@@ -155,7 +159,7 @@ final class VolPanel {
                     return true;
                 }
             });
-            r.setLayoutParams(new LayoutParams(-1, dp(ctx, ROW_DP)));
+            r.setLayoutParams(horiz ? new LayoutParams(dp(ctx, ROW_DP), -1) : new LayoutParams(-1, dp(ctx, ROW_DP)));
             return r;
         }
 
@@ -182,16 +186,24 @@ final class VolPanel {
             Context ctx = getContext();
             int pw = p.getWidth() > 0 ? p.getWidth() : ctx.getResources().getDisplayMetrics().widthPixels;
             int ph = p.getHeight() > 0 ? p.getHeight() : ctx.getResources().getDisplayMetrics().heightPixels;
-            int l = c.volX >= 0 ? dp(ctx, c.volX) : pw - dp(ctx, W_DP) - dp(ctx, 8);
+            int l = c.volX >= 0 ? dp(ctx, c.volX) : pw - barW() - dp(ctx, 8);
             int t = c.volY >= 0 ? dp(ctx, c.volY) : ph * 2 / 5;
             applyMargins(l, t, pw, ph);
             refresh();
         }
 
+        private int barW() {
+            return horiz ? dp(getContext(), ROW_DP * 4 + VAL_DP + 8) : dp(getContext(), W_DP);
+        }
+
+        private int barH() {
+            return horiz ? dp(getContext(), W_DP) : dp(getContext(), ROW_DP * 4 + VAL_DP + 8);
+        }
+
         private void applyMargins(int l, int t, int pw, int ph) {
             FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) getLayoutParams();
-            int w = dp(getContext(), W_DP);
-            int h = getHeight() > 0 ? getHeight() : dp(getContext(), ROW_DP * 4 + VAL_DP + 8);
+            int w = getWidth() > 0 ? getWidth() : barW();
+            int h = getHeight() > 0 ? getHeight() : barH();
             lp.leftMargin = Math.max(0, Math.min(Math.max(0, pw - w), l));
             lp.topMargin = Math.max(0, Math.min(Math.max(0, ph - h), t));
             setLayoutParams(lp);

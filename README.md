@@ -23,6 +23,16 @@
 ## 使用
 设置页的内容按功能折叠成一个个分组（点标题展开，展开一个其他自动收起；有总开关的分组不用展开就能开关）。前提：LSPosed 里启用模块、作用域勾选抖音、强杀抖音重开；改完点底部「保存并应用」（需要 root），抖音回到前台即生效。不推送则用默认：开启 + 鲜艳随机。
 
+## 1.40.9：直播间累计观看不再用混淆名，改按协议字段名读；加「音浪」
+
+- **依据**：TextRec 40.8.0 `textrec-tasks-20261026-170321`（`RoomStats` 的数据树，抖音 40.9.0 的 `textrec-tasks-20261026-094600` 里这几层字段名一样）。`RoomStats.userCompositionDelegate.dataNode` 是数据节点；`dataNode.metaForSerialization.d` 是「编号 → 字段说明」表，说明里有 `protoName` 和 `tag`，实测 `tag 3 = fan_ticket`、`4 = money`、`5 = total_user`、`6 = gift_uv_count`、`15 = total_user_str`；`dataNode.fieldValues.dataHolder` 里的 `keyTable`（int[]）和 `valueTable`（Object[]）是真实值。`RoomStats` 自己的 `totalUser` / `ticket` 字段一直是 0（空壳），不能读。
+- **改法**：累计观看不再读混淆名 `t3`：按 `protoName = "total_user"` 在 `d` 表里找到编号，再到 `dataHolder` 里取这个编号的值。路径上读的字段名全是原名（`userCompositionDelegate`、`dataNode`、`metaForSerialization`、`d`、`protoName`、`tag`、`fieldValues`、`dataHolder`、`keyTable`、`valueTable`），换抖音版本不会变；抖音更新后 `t3` 这类名字会变，这条路不受影响。
+- **新增「音浪」**：同一条路读 `protoName = "fan_ticket"`。格式模板新增 `{音浪}`，默认模板加第四行 `音浪 {音浪}`；配置里存的正好是旧默认模板（1.40.7 以前的一行版、1.40.8 的三行版）时读配置就换成新默认，自己改过的模板不动。取不到显示「-」；取到了就是精确数字（可能是 0）。
+- **不动**：在线人数（`live.online`，钩人数推送，实时更新）一行没改。探针 1.40.7 起就没有了，这次又核对过：代码里没有 `probe`。
+- **失败时**：路径上任何一层不存在 / 编号不在表里 / 值不是数字，那一项显示「-」，不换别的办法、不估算、不退回 `total_user_str`。这不是钩子，没有 `HookGuard` 编号，设置页钩子状态里看不到，要看直播间里是不是显示「-」。
+- **局限（没编译、没上机）**：①`valueTable` 里的值是不是 `Number`（Integer / Long）没有证据（记录里只展开到「Object; length=16」，没展开元素），不是就显示「-」；②读 `keyTable` / `valueTable` 时没有加锁，抖音在别的线程写这张表时可能读到不一致的值，读不出来就显示「-」；③`fan_ticket` 在观众端有没有值没有证据（`RoomStats#getTicket` 在探针里一直是 0），这一版就是用来看它在数据节点里到底有没有这一项；④没有 Android SDK，`LiveHook` 等没编译。
+- `HookGuard.RULES_REV` 不变（没改任何钩子的匹配规则）。
+
 ## 1.40.8：直播间在线人数改成钩人数推送，实时更新
 
 - **依据**：反编译抖音 40.9.0（`classes14/25/30/38/46/52/53.dex`）+ TextRec 40.9.0 `textrec-tasks-20261026-105113`（任务 2，右上角在线人数 `1330`，设置栈）。服务端推 `WebcastRoomStatsMessage`（`RoomStatsMessage`，类名没混淆），`X.0AQo` 的 `LJIIJJI → LJIIJ → LJIIIZ` 处理，最后调 `LiveRoomAudienceWidget#P7(long, String, String, boolean)`：第 2 个参数 `setText` 到右上角 `StrokeTextView`（id `oip`），第 1 个参数是 `data_room_pcu`（日志里叫 `realCount`），第 4 个参数是 `isHidden`。同一方法还把第 2 / 3 个参数存进 `Room.viewStats` 的 `_displayMiddle` / `_displayLong`。更新约 0.4 次 / 秒，主线程。

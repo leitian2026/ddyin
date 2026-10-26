@@ -120,6 +120,7 @@ final class DanmakuHook {
                         Activity a = (Activity) p.thisObject;
                         PubHook.onResume(a);
                         LongPressHook.onResume();
+                        VolPanel.onResume(a);
                         LiveHook.onResume();
                         IdleExit.onResume();
                         HookGuard.noteVersion(a);

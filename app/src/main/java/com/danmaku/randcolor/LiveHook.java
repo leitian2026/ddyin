@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import de.robv.android.xposed.XC_MethodHook;
 
 /**
- * 直播间显示开播时间：在直播间页面上叠一行文字，字号、颜色、格式在设置页调，位置（左上角占「剩余空间」的百分比）在抖音的直播间里用浮窗拖（见下面「位置调节」）。
+ * 直播间数据（开播时间、累计观看人数、在线人数）：在直播间页面上叠一块文字，字号、颜色、格式在设置页调，位置（左上角占「剩余空间」的百分比）在抖音的直播间里用浮窗拖（见下面「位置调节」）。
  * 只在直播间页面里画：文字挂在每个直播间页面（LivePlayFragmentV2）自己的根控件的 ViewOverlay 上，页面没了文字就没了，别的界面碰不到。
  * 挂在页面自己身上还有一个好处：上下滑切直播间时，每个房间的文字跟着自己的页面走，不用判断「当前是哪个房间」。
  *
@@ -64,7 +64,8 @@ import de.robv.android.xposed.XC_MethodHook;
  * （时间还没取到 / 开关没开也放一行示例文字），并把当前在屏幕上的页面交给 LivePosPanel：它在窗口最上层盖一层触摸层和一个小浮窗，
  * 拖动 = moveTo（改 cfg.liveX / liveY 再 placeAll），完成 / 取消 = 写回配置文件、撤掉浮窗。不加钩子，不加定时器。
  *
- * 没有定时器 / 轮询：文字只在上面的回调、回到前台、根控件尺寸变化这几个事件里更新。
+ * 没有定时器 / 轮询：文字只在上面的回调、回到前台、根控件尺寸变化这几个事件里更新。累计观看 / 在线人数每次刷新时读一次当前值，
+ * 所以不会自己跳动，要等下一次刷新事件才变（没有定时器就没有别的办法，也没有证据能钩到抖音更新人数的那个地方）。
  * 钩子没挂上时功能安静失效，不改变抖音原有行为。
  */
 final class LiveHook {
@@ -74,6 +75,16 @@ final class LiveHook {
     private static final String FRAG = "com.bytedance.android.livesdk.chatroom.LivePlayFragmentV2";
     private static final String ROOM = "com.bytedance.android.livesdkapi.depend.model.live.Room";
     private static final String SESS = "com.bytedance.android.livesdk.chatroom.room.RoomSession";
+
+    /**
+     * 房间人数：Room#getStats() 返回的对象（RoomStats）里的两个读取方法，名字是混淆的，只按这两个名字精确找，不放宽。
+     * 依据：用户装 1.40.6 取证日志版在抖音 40.9.0 直播间里的日志，同一行里 t3:int=170445、mj:String=10万+、nm:String=3878、o3:String=3878；
+     * 用户对着屏幕核对过：t3 = 累计观看人数（mj 是它的显示文本，不用），nm / o3 = 在线人数（两个值一样，这里只用 nm）。
+     * 同一个房间里 t3 在多次日志里一路涨（426、2090、10142、164393），nm 在推荐页里是 17、29、47、50 这样的小数。
+     * 抖音更新后这两个名字会变：找不到那一项就显示「-」，其余照常，不会换别的方法顶上；需要重新取证（读 RoomStats 里的方法）。
+     */
+    private static final String STAT_TOTAL = "t3";
+    private static final String STAT_ONLINE = "nm";
 
     private static final int MAX_PAGES = 6;       // 同时记住的直播间页面（上下滑时前后几个页面都在）
 
@@ -139,7 +150,7 @@ final class LiveHook {
 
     private static void hookRoom(ClassLoader cl) {
         if (HookGuard.settled(HookGuard.LIVE_ROOM)) return;
-        if (!DanmakuHook.cfg.liveTime && !DanmakuHook.cfg.liveAdjust) return; // 开播时间没开：不挂（没有结论，打开后回到前台再挂）
+        if (!DanmakuHook.cfg.liveTime && !DanmakuHook.cfg.liveAdjust) return; // 直播间数据没开：不挂（没有结论，打开后回到前台再挂）
         Class<?> sc = HookGuard.find(HookGuard.LIVE_ROOM, SESS, cl);
         if (sc == null) return;
         Class<?> rc, fc;
@@ -347,10 +358,9 @@ final class LiveHook {
                 continue;
             }
             ensureListener(pg, root);
-            long sec = timeOf(pg, c.liveSrc);
-            probeStats(pg);
-            String text = sec > 0 ? LiveFormat.render(c.liveFormat, sec) : null;
-            if (text == null && adj) text = LiveFormat.render(c.liveFormat, System.currentTimeMillis() / 1000L); // 调位置时没取到时间也放一行示例
+            long sec = timeOf(pg, c.liveSrc), total = totalOf(pg), online = onlineOf(pg);
+            String text = sec > 0 || total >= 0 || online >= 0 ? LiveFormat.render(c.liveFormat, sec, total, online) : null; // 三项都没取到就不显示
+            if (text == null && adj) text = LiveFormat.render(c.liveFormat, System.currentTimeMillis() / 1000L, 170445L, 3878L); // 调位置时什么都没取到也放示例
             if (text == null) {
                 hide(pg);
                 continue;
@@ -376,47 +386,73 @@ final class LiveHook {
         return TMP.width() * TMP.height();
     }
 
-    // ------------------------------------------------------------ 临时探针（找「本场音浪」用，找到字段后删掉）
+    // ------------------------------------------------------------ 读人数（累计观看 / 在线）
 
-    private static long probeAt;
-    private static String probeLast = "";
-    private static java.lang.reflect.Method probeGetStats;
+    /** Room#getStats()（名字没混淆），第一次用时按名字找好并缓存。 */
+    private static Method mGetStats;
+    /** getStats() 返回对象的运行时类，以及这个类里认出的两个读取方法；类变了才重新找。 */
+    private static Class<?> statsCls;
+    private static Method mTotal, mOnline;
 
-    /**
-     * 临时探针：对页面的 Room 取 getStats()，把 RoomStats 里所有「无参、返回数字」的方法调一遍，值变了才写一行日志（至多每秒一次）。
-     * 目的：RoomStats 的 ticket / money 字段是空壳，真实值在抖音的数据节点里，要靠读取方法拿；UI 不显示音浪，TextRec 记不到哪个方法返回它。
-     * 日志看 LSPosed 日志里「[DanmakuColor] probe」；字符串型的方法一并记。
-     */
-    private static void probeStats(Page pg) {
+    /** 累计观看人数；Room 还没交过来 / 方法没找到 / 值读不出来都返回 -1。 */
+    private static long totalOf(Page pg) {
+        return countOf(pg, true);
+    }
+
+    /** 在线人数；取不到返回 -1。 */
+    private static long onlineOf(Page pg) {
+        return countOf(pg, false);
+    }
+
+    private static long countOf(Page pg, boolean total) {
         try {
-            long now = android.os.SystemClock.uptimeMillis();
-            if (now - probeAt < 1000) return;
             Object room = pg.roomRef != null ? pg.roomRef.get() : null;
-            if (room == null) return;
-            probeAt = now;
-            if (probeGetStats == null) {
-                probeGetStats = roomCls.getMethod("getStats");
+            Class<?> rc = roomCls;
+            if (room == null || rc == null) return -1;
+            if (mGetStats == null) mGetStats = rc.getMethod("getStats");
+            Object st = mGetStats.invoke(room);
+            if (st == null) return -1;
+            if (st.getClass() != statsCls) {
+                statsCls = st.getClass();
+                mTotal = statsMethod(statsCls, STAT_TOTAL, false);
+                mOnline = statsMethod(statsCls, STAT_ONLINE, true);
             }
-            Object st = probeGetStats.invoke(room);
-            if (st == null) return;
-            StringBuilder sb = new StringBuilder();
-            for (Method m : st.getClass().getDeclaredMethods()) {
-                if (m.getParameterTypes().length != 0 || Modifier.isStatic(m.getModifiers())) continue;
-                Class<?> r = m.getReturnType();
-                if (r != long.class && r != int.class && r != Long.class && r != Integer.class && r != String.class) continue;
-                try {
-                    m.setAccessible(true);
-                    sb.append(m.getName()).append(':').append(r.getSimpleName()).append('=').append(m.invoke(st)).append(' ');
-                } catch (Throwable ignored) {
+            Method m = total ? mTotal : mOnline;
+            if (m == null) return -1;
+            Object v = m.invoke(st);
+            if (v instanceof Number) {
+                long n = ((Number) v).longValue();
+                return n >= 0 ? n : -1;
+            }
+            if (v instanceof String) { // 在线人数是字符串；必须全是数字（「1.2万」这种显示文本不认，不估算）
+                String t = ((String) v).trim();
+                if (t.isEmpty() || t.length() > 18) return -1;
+                for (int i = 0; i < t.length(); i++) {
+                    char ch = t.charAt(i);
+                    if (ch < '0' || ch > '9') return -1;
                 }
+                return Long.parseLong(t);
             }
-            String out = sb.toString();
-            if (!out.equals(probeLast)) {
-                probeLast = out;
-                de.robv.android.xposed.XposedBridge.log("[DanmakuColor] probe " + out);
+            return -1;
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
+
+    /** 按名字、无参、非静态、返回类型对得上，在类里找一个读取方法；找不到返回 null（那一项显示「-」，不换别的方法）。 */
+    private static Method statsMethod(Class<?> c, String name, boolean str) {
+        try {
+            for (Method m : c.getDeclaredMethods()) {
+                if (!m.getName().equals(name) || m.getParameterTypes().length != 0 || Modifier.isStatic(m.getModifiers())) continue;
+                Class<?> r = m.getReturnType();
+                boolean ok = str ? r == String.class : (r == int.class || r == long.class);
+                if (!ok) continue;
+                m.setAccessible(true);
+                return m;
             }
         } catch (Throwable ignored) {
         }
+        return null;
     }
 
     // ------------------------------------------------------------ 找 Room、读时间

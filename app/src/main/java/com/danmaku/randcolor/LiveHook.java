@@ -348,6 +348,7 @@ final class LiveHook {
             }
             ensureListener(pg, root);
             long sec = timeOf(pg, c.liveSrc);
+            probeStats(pg);
             String text = sec > 0 ? LiveFormat.render(c.liveFormat, sec) : null;
             if (text == null && adj) text = LiveFormat.render(c.liveFormat, System.currentTimeMillis() / 1000L); // 调位置时没取到时间也放一行示例
             if (text == null) {
@@ -373,6 +374,49 @@ final class LiveHook {
     private static int visibleArea(ViewGroup r) {
         if (!r.isShown() || !r.getGlobalVisibleRect(TMP)) return 0;
         return TMP.width() * TMP.height();
+    }
+
+    // ------------------------------------------------------------ 临时探针（找「本场音浪」用，找到字段后删掉）
+
+    private static long probeAt;
+    private static String probeLast = "";
+    private static java.lang.reflect.Method probeGetStats;
+
+    /**
+     * 临时探针：对页面的 Room 取 getStats()，把 RoomStats 里所有「无参、返回数字」的方法调一遍，值变了才写一行日志（至多每秒一次）。
+     * 目的：RoomStats 的 ticket / money 字段是空壳，真实值在抖音的数据节点里，要靠读取方法拿；UI 不显示音浪，TextRec 记不到哪个方法返回它。
+     * 日志看 LSPosed 日志里「[DanmakuColor] probe」；字符串型的方法一并记。
+     */
+    private static void probeStats(Page pg) {
+        try {
+            long now = android.os.SystemClock.uptimeMillis();
+            if (now - probeAt < 1000) return;
+            Object room = pg.roomRef != null ? pg.roomRef.get() : null;
+            if (room == null) return;
+            probeAt = now;
+            if (probeGetStats == null) {
+                probeGetStats = roomCls.getMethod("getStats");
+            }
+            Object st = probeGetStats.invoke(room);
+            if (st == null) return;
+            StringBuilder sb = new StringBuilder();
+            for (Method m : st.getClass().getDeclaredMethods()) {
+                if (m.getParameterTypes().length != 0 || Modifier.isStatic(m.getModifiers())) continue;
+                Class<?> r = m.getReturnType();
+                if (r != long.class && r != int.class && r != Long.class && r != Integer.class && r != String.class) continue;
+                try {
+                    m.setAccessible(true);
+                    sb.append(m.getName()).append(':').append(r.getSimpleName()).append('=').append(m.invoke(st)).append(' ');
+                } catch (Throwable ignored) {
+                }
+            }
+            String out = sb.toString();
+            if (!out.equals(probeLast)) {
+                probeLast = out;
+                de.robv.android.xposed.XposedBridge.log("[DanmakuColor] probe " + out);
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     // ------------------------------------------------------------ 找 Room、读时间

@@ -17,6 +17,7 @@ import java.util.Iterator;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import de.robv.android.xposed.XC_MethodHook;
+import de.robv.android.xposed.XposedBridge;
 
 /**
  * 直播间数据（开播时间、累计观看人数、在线人数）：在直播间页面上叠一块文字，字号、颜色、格式在设置页调，位置（左上角占「剩余空间」的百分比）在抖音的直播间里用浮窗拖（见下面「位置调节」）。
@@ -64,8 +65,9 @@ import de.robv.android.xposed.XC_MethodHook;
  * （时间还没取到 / 开关没开也放一行示例文字），并把当前在屏幕上的页面交给 LivePosPanel：它在窗口最上层盖一层触摸层和一个小浮窗，
  * 拖动 = moveTo（改 cfg.liveX / liveY 再 placeAll），完成 / 取消 = 写回配置文件、撤掉浮窗。不加钩子，不加定时器。
  *
- * 没有定时器 / 轮询：文字只在上面的回调、回到前台、根控件尺寸变化这几个事件里更新。累计观看 / 在线人数每次刷新时读一次当前值，
- * 所以不会自己跳动，要等下一次刷新事件才变（没有定时器就没有别的办法，也没有证据能钩到抖音更新人数的那个地方）。
+ * 没有定时器 / 轮询：文字只在上面的回调、回到前台、根控件尺寸变化、人数推送这几个事件里更新。
+ * 在线人数跟着抖音的人数推送实时变（live.online，见 ONLINE_HOOK 上面的依据）；累计观看每次刷新时读一次 RoomStats 的当前值，
+ * 不会自己跳动（累计观看的推送处理在没拿到的 dex 里，还没有钩点；每次在线人数推送触发刷新时顺带重读一次）。
  * 钩子没挂上时功能安静失效，不改变抖音原有行为。
  */
 final class LiveHook {
@@ -84,7 +86,29 @@ final class LiveHook {
      * 抖音更新后这两个名字会变：找不到那一项就显示「-」，其余照常，不会换别的方法顶上；需要重新取证（读 RoomStats 里的方法）。
      */
     private static final String STAT_TOTAL = "t3";
-    private static final String STAT_ONLINE = "nm";
+
+    /**
+     * 在线人数（1.40.8 起不再读 RoomStats 的 nm，改成钩人数推送，实时更新）。
+     * 依据：反编译抖音 40.9.0（classes14 / 25 / 30 / 38 / 46 / 52 / 53.dex）+ TextRec 40.9.0 textrec-tasks-20261026-105113（任务 2 挂机，右上角在线人数 1330）：
+     *  - 服务端推 WebcastRoomStatsMessage（RoomStatsMessage，类名没混淆），X.0AQo 的 LJIIJJI → LJIIJ → LJIIIZ 处理，
+     *    最后调 LiveRoomAudienceWidget#P7(long, String, String, boolean)：第 2 个参数 setText 到右上角 StrokeTextView（id oip），也就是屏幕上的在线人数；
+     *    第 1 个参数 j 是 data_room_pcu（日志里叫 realCount），第 4 个参数是 isHidden；同一方法里还把第 2 / 3 个参数存进 Room.viewStats._displayMiddle / _displayLong。
+     *  - 更新频率约 0.4 次 / 秒（TextRec 同一位置 39 次，间隔 181ms～13s），主线程。
+     *  - LiveRoomAudienceWidget 里「返回 void、参数正好是 (long, String, String, boolean)」的方法只有 P7 一个；
+     *    「声明类型就是 IRoom」的字段只有 e 一个，值是这个直播间的 Room（onViewCreated 里 dataCenter.get("data_room")）。
+     * 匹配规则（只用没混淆的类型，有歧义就一个都不挂）：方法必须刚好 1 个、IRoom 字段必须刚好 1 个，否则 miss。
+     * 取值：用第 1 个参数 j（精确的 long，不是「1.2万」那种显示文本）；第 2 个参数是纯数字时必须等于 j（对不上就不显示，不拿别的顶上）；
+     *       第 4 个参数（隐藏）为 true 或第 2 个参数为空，抖音自己也把人数藏起来了，这里显示「-」。
+     * 没证据的部分：j 一定是「在线人数」（只有变量名 / DataCenter 键名 data_room_pcu 的旁证，没有用屏幕上的数逐个核对过）；
+     *       widget 的 IRoom 字段和 RoomSession 交来的 Room 是不是同一个房间（按房间 id 对，对不上就不显示）。
+     */
+    private static final String WIDGET = "com.bytedance.android.live.room.widget.LiveRoomAudienceWidget";
+    private static final String IROOM = "com.bytedance.android.livesdkapi.depend.model.live.IRoom";
+    private static final XC_MethodHook ONLINE_HOOK = new OnlineHook();
+    /** widget 里类型是 IRoom 的字段；安装阶段按类型找好，回调里只取值。 */
+    private static Field fWidgetRoom;
+    /** Room#getId()（没混淆，返回 long）；第一次用时找好。 */
+    private static Method mRoomId;
 
     private static final int MAX_PAGES = 6;       // 同时记住的直播间页面（上下滑时前后几个页面都在）
 
@@ -129,6 +153,7 @@ final class LiveHook {
         WeakReference<TextView> tvRef;
         View.OnLayoutChangeListener ll;
         WeakReference<Object> roomRef;        // 这个页面的 Room（进房时 RoomSession 交过来的）；弱引用
+        long online = -1;                         // 最近一次人数推送里的在线人数；还没收到 / 被隐藏 = -1
         int lx = Integer.MIN_VALUE, ly, lw, lh;   // 上次放的位置
         int size = -1, color = Integer.MIN_VALUE; // 上次套的字号 / 颜色
         boolean adj;                              // 文字上现在是不是带着「调节模式」的底色
@@ -144,6 +169,7 @@ final class LiveHook {
     static void tryHook(ClassLoader cl) {
         if (cl == null) return;
         hookRoom(cl);
+        hookOnline(cl);
         HookGuard.hook(HookGuard.LIVE_PAGE, FRAG, VIEW_CREATED, PAGE_HOOK,
                 "LivePlayFragmentV2 里没有 onViewCreated(View, Bundle)（直播间页面改了，需要重新追踪页面和调用栈）", cl);
     }
@@ -358,7 +384,7 @@ final class LiveHook {
                 continue;
             }
             ensureListener(pg, root);
-            long sec = timeOf(pg, c.liveSrc), total = totalOf(pg), online = onlineOf(pg);
+            long sec = timeOf(pg, c.liveSrc), total = totalOf(pg), online = pg.online;
             String text = sec > 0 || total >= 0 || online >= 0 ? LiveFormat.render(c.liveFormat, sec, total, online) : null; // 三项都没取到就不显示
             if (text == null && adj) text = LiveFormat.render(c.liveFormat, System.currentTimeMillis() / 1000L, 170445L, 3878L); // 调位置时什么都没取到也放示例
             if (text == null) {
@@ -386,25 +412,19 @@ final class LiveHook {
         return TMP.width() * TMP.height();
     }
 
-    // ------------------------------------------------------------ 读人数（累计观看 / 在线）
+    // ------------------------------------------------------------ 累计观看人数（读 RoomStats.t3）
 
     /** Room#getStats()（名字没混淆），第一次用时按名字找好并缓存。 */
     private static Method mGetStats;
-    /** getStats() 返回对象的运行时类，以及这个类里认出的两个读取方法；类变了才重新找。 */
+    /** getStats() 返回对象的运行时类，以及这个类里认出的读取方法；类变了才重新找。 */
     private static Class<?> statsCls;
-    private static Method mTotal, mOnline;
+    private static Method mTotal;
 
-    /** 累计观看人数；Room 还没交过来 / 方法没找到 / 值读不出来都返回 -1。 */
+    /**
+     * 累计观看人数；Room 还没交过来 / 方法没找到 / 值读不出来都返回 -1。
+     * t3 = RoomStats 的 total_user（反编译：t3() 读 meta_total_user，mj() 读 total_user_str）；它是混淆名，抖音更新后会变，那时这一项显示「-」。
+     */
     private static long totalOf(Page pg) {
-        return countOf(pg, true);
-    }
-
-    /** 在线人数；取不到返回 -1。 */
-    private static long onlineOf(Page pg) {
-        return countOf(pg, false);
-    }
-
-    private static long countOf(Page pg, boolean total) {
         try {
             Object room = pg.roomRef != null ? pg.roomRef.get() : null;
             Class<?> rc = roomCls;
@@ -414,24 +434,14 @@ final class LiveHook {
             if (st == null) return -1;
             if (st.getClass() != statsCls) {
                 statsCls = st.getClass();
-                mTotal = statsMethod(statsCls, STAT_TOTAL, false);
-                mOnline = statsMethod(statsCls, STAT_ONLINE, true);
+                mTotal = statsMethod(statsCls, STAT_TOTAL);
             }
-            Method m = total ? mTotal : mOnline;
+            Method m = mTotal;
             if (m == null) return -1;
             Object v = m.invoke(st);
             if (v instanceof Number) {
                 long n = ((Number) v).longValue();
                 return n >= 0 ? n : -1;
-            }
-            if (v instanceof String) { // 在线人数是字符串；必须全是数字（「1.2万」这种显示文本不认，不估算）
-                String t = ((String) v).trim();
-                if (t.isEmpty() || t.length() > 18) return -1;
-                for (int i = 0; i < t.length(); i++) {
-                    char ch = t.charAt(i);
-                    if (ch < '0' || ch > '9') return -1;
-                }
-                return Long.parseLong(t);
             }
             return -1;
         } catch (Throwable t) {
@@ -439,20 +449,138 @@ final class LiveHook {
         }
     }
 
-    /** 按名字、无参、非静态、返回类型对得上，在类里找一个读取方法；找不到返回 null（那一项显示「-」，不换别的方法）。 */
-    private static Method statsMethod(Class<?> c, String name, boolean str) {
+    /** 按名字、无参、非静态、返回 int / long，在类里找一个读取方法；找不到返回 null（那一项显示「-」，不换别的方法）。 */
+    private static Method statsMethod(Class<?> c, String name) {
         try {
             for (Method m : c.getDeclaredMethods()) {
                 if (!m.getName().equals(name) || m.getParameterTypes().length != 0 || Modifier.isStatic(m.getModifiers())) continue;
                 Class<?> r = m.getReturnType();
-                boolean ok = str ? r == String.class : (r == int.class || r == long.class);
-                if (!ok) continue;
+                if (r != int.class && r != long.class) continue;
                 m.setAccessible(true);
                 return m;
             }
         } catch (Throwable ignored) {
         }
         return null;
+    }
+
+    // ------------------------------------------------------------ 在线人数（钩人数推送）
+
+    private static void hookOnline(ClassLoader cl) {
+        if (HookGuard.settled(HookGuard.LIVE_ONLINE)) return;
+        if (!DanmakuHook.cfg.liveTime && !DanmakuHook.cfg.liveAdjust) return; // 直播间数据没开：不挂（没有结论，打开后回到前台再挂）
+        Class<?> wc = HookGuard.find(HookGuard.LIVE_ONLINE, WIDGET, cl);
+        if (wc == null) return;
+        Method target = null;
+        Field rf = null;
+        int nm = 0, nf = 0;
+        try {
+            Class<?> ic = Class.forName(IROOM, false, cl);
+            for (Method m : wc.getDeclaredMethods()) {
+                Class<?>[] t = m.getParameterTypes();
+                if (m.getReturnType() == void.class && !Modifier.isStatic(m.getModifiers())
+                        && t.length == 4 && t[0] == long.class && t[1] == String.class && t[2] == String.class && t[3] == boolean.class) {
+                    target = m;
+                    nm++;
+                }
+            }
+            for (Field f : wc.getDeclaredFields()) {
+                if (!Modifier.isStatic(f.getModifiers()) && f.getType() == ic) {
+                    rf = f;
+                    nf++;
+                }
+            }
+        } catch (Throwable t) { // 方法 / 字段签名里引用的类还没就绪
+            HookGuard.waitFail(HookGuard.LIVE_ONLINE);
+            return;
+        }
+        if (nm != 1) {
+            HookGuard.miss(HookGuard.LIVE_ONLINE, "LiveRoomAudienceWidget 里「返回 void、参数是 (long, String, String, boolean)」的方法有 " + nm + " 个（要刚好 1 个；抖音改了人数推送的处理，需要重新追踪在线人数的 setText 栈）");
+            return;
+        }
+        if (nf != 1) {
+            HookGuard.miss(HookGuard.LIVE_ONLINE, "LiveRoomAudienceWidget 里类型是 IRoom 的字段有 " + nf + " 个（要刚好 1 个；抖音改了 widget 的房间字段）");
+            return;
+        }
+        try {
+            rf.setAccessible(true);
+            fWidgetRoom = rf;
+            XposedBridge.hookMethod(target, ONLINE_HOOK);
+        } catch (Throwable t) {
+            fWidgetRoom = null;
+            HookGuard.miss(HookGuard.LIVE_ONLINE, "hook LiveRoomAudienceWidget 的人数方法失败：" + t);
+            return;
+        }
+        HookGuard.ok(HookGuard.LIVE_ONLINE, "");
+    }
+
+    /**
+     * 人数推送处理完（after）：args = (在线人数 long, 显示文本 String, 另一段文本 String, 是否隐藏 boolean)。
+     * 回调里只做：几次类型判断、一次字段取值、一次 Room#getId 调用、一次整数比较；变了才请求刷新；不打日志。
+     */
+    private static final class OnlineHook extends XC_MethodHook {
+        @Override
+        protected void afterHookedMethod(MethodHookParam p) {
+            try {
+                if (!DanmakuHook.cfg.liveTime && !DanmakuHook.cfg.liveAdjust) return;
+                if (Looper.myLooper() != Looper.getMainLooper()) return;
+                Field rf = fWidgetRoom;
+                Object[] a = p.args;
+                if (rf == null || p.thisObject == null || a == null || a.length != 4 || !(a[0] instanceof Long)) return;
+                Object room = rf.get(p.thisObject);
+                if (room == null) return;
+                long cnt = ((Long) a[0]).longValue();
+                String shown = a[1] instanceof String ? (String) a[1] : null;
+                boolean hidden = a[3] instanceof Boolean && ((Boolean) a[3]).booleanValue();
+                onOnline(room, hidden || shown == null || shown.isEmpty() || !consistent(shown, cnt) ? -1 : cnt);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /** 显示文本是纯数字时必须等于 cnt；带「万」之类的显示文本没法比，认。 */
+    private static boolean consistent(String shown, long cnt) {
+        int n = shown.length();
+        if (cnt < 0 || n > 18) return false;
+        long v = 0;
+        for (int i = 0; i < n; i++) {
+            char ch = shown.charAt(i);
+            if (ch < '0' || ch > '9') return true;
+            v = v * 10 + (ch - '0');
+        }
+        return v == cnt;
+    }
+
+    /** 这个房间（按房间 id 对）的页面记下新的在线人数；变了才请求刷新。主线程。 */
+    private static void onOnline(Object room, long online) {
+        long id = idOf(room);
+        if (id == 0) return;
+        for (Page pg : PAGES) {
+            Object r = pg.roomRef != null ? pg.roomRef.get() : null;
+            if (r == null || idOf(r) != id) continue;
+            if (pg.online != online) {
+                pg.online = online;
+                requestRefresh();
+            }
+            return;
+        }
+    }
+
+    /** Room#getId()；不是 Room / 取不到返回 0。 */
+    private static long idOf(Object room) {
+        try {
+            Class<?> rc = roomCls;
+            if (rc == null || !rc.isInstance(room)) return 0;
+            if (mRoomId == null) {
+                Method m = rc.getMethod("getId");
+                if (m.getReturnType() != long.class) return 0;
+                mRoomId = m;
+            }
+            Object v = mRoomId.invoke(room);
+            return v instanceof Long ? ((Long) v).longValue() : 0;
+        } catch (Throwable t) {
+            return 0;
+        }
     }
 
     // ------------------------------------------------------------ 找 Room、读时间

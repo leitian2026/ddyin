@@ -13,7 +13,9 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import de.robv.android.xposed.XC_MethodHook;
@@ -79,13 +81,21 @@ final class LiveHook {
     private static final String SESS = "com.bytedance.android.livesdk.chatroom.room.RoomSession";
 
     /**
-     * 房间人数：Room#getStats() 返回的对象（RoomStats）里的两个读取方法，名字是混淆的，只按这两个名字精确找，不放宽。
-     * 依据：用户装 1.40.6 取证日志版在抖音 40.9.0 直播间里的日志，同一行里 t3:int=170445、mj:String=10万+、nm:String=3878、o3:String=3878；
-     * 用户对着屏幕核对过：t3 = 累计观看人数（mj 是它的显示文本，不用），nm / o3 = 在线人数（两个值一样，这里只用 nm）。
-     * 同一个房间里 t3 在多次日志里一路涨（426、2090、10142、164393），nm 在推荐页里是 17、29、47、50 这样的小数。
-     * 抖音更新后这两个名字会变：找不到那一项就显示「-」，其余照常，不会换别的方法顶上；需要重新取证（读 RoomStats 里的方法）。
+     * 累计观看 / 音浪：Room#getStats() 返回的对象（RoomStats）按「协议字段名」读，不用任何混淆名。
+     * 依据：TextRec 40.8.0 textrec-tasks-20261026-170321（RoomStats 的数据树，抖音 40.9.0 的 textrec-tasks-20261026-094600 里这几层的字段名一样）：
+     *  - RoomStats.userCompositionDelegate.dataNode 是这个消息的数据节点（RoomStats.dataNodeLazy 的 lazy 值也指向它）；
+     *  - dataNode.metaForSerialization.d 是 ConcurrentHashMap：编号 → 字段说明，字段说明里有 protoName（字符串）和 tag（int），
+     *    实测 tag 1 = id、3 = fan_ticket、4 = money、5 = total_user、6 = gift_uv_count、15 = total_user_str、17 = comment_count；
+     *  - dataNode.fieldValues.dataHolder 里是 keyTable（int[]，编号）和 valueTable（Object[]，值），size = 8，hasZeroValue / zeroValue / mask / shift / loadFactor
+     *    是一张开放寻址的 int → 对象表（key 0 单独放 zeroValue，这里用到的编号都不是 0）；编号等于 tag 的那一格的 valueTable 就是值。
+     *  - 同一个 RoomStats 对象上，混淆名读取方法在进房记录里返回过 22044 → 22084（同一房间里涨），40.9.0 的探针日志里 t3 = 170445；
+     *    字段 totalUser 一直是 0（空壳），所以不读字段，读 dataHolder。
+     * 没证据的部分：valueTable 里的值是不是 Integer / Long（记录里只展开到「Object; length=16」，没展开元素）：不是 Number 就当取不到，显示「-」；
+     *    fan_ticket 在观众端有没有值（探针里 getTicket 一直是 0，这条路是看它在数据节点里到底有没有这一项）。
+     * 取不到（路径上任何一层没有 / 编号不在表里 / 值不是数字）就返回 -1，那一项显示「-」，不换别的办法。
      */
-    private static final String STAT_TOTAL = "t3";
+    private static final String PROTO_TOTAL = "total_user";
+    private static final String PROTO_TICKET = "fan_ticket";
 
     /**
      * 在线人数（1.40.8 起不再读 RoomStats 的 nm，改成钩人数推送，实时更新）。
@@ -384,9 +394,9 @@ final class LiveHook {
                 continue;
             }
             ensureListener(pg, root);
-            long sec = timeOf(pg, c.liveSrc), total = totalOf(pg), online = pg.online;
-            String text = sec > 0 || total >= 0 || online >= 0 ? LiveFormat.render(c.liveFormat, sec, total, online) : null; // 三项都没取到就不显示
-            if (text == null && adj) text = LiveFormat.render(c.liveFormat, System.currentTimeMillis() / 1000L, 170445L, 3878L); // 调位置时什么都没取到也放示例
+            long sec = timeOf(pg, c.liveSrc), total = statOf(pg, PROTO_TOTAL), online = pg.online, ticket = statOf(pg, PROTO_TICKET);
+            String text = sec > 0 || total >= 0 || online >= 0 || ticket >= 0 ? LiveFormat.render(c.liveFormat, sec, total, online, ticket) : null; // 几项都没取到就不显示
+            if (text == null && adj) text = LiveFormat.render(c.liveFormat, System.currentTimeMillis() / 1000L, 170445L, 3878L, 5200L); // 调位置时什么都没取到也放示例
             if (text == null) {
                 hide(pg);
                 continue;
@@ -412,19 +422,22 @@ final class LiveHook {
         return TMP.width() * TMP.height();
     }
 
-    // ------------------------------------------------------------ 累计观看人数（读 RoomStats.t3）
+    // ------------------------------------------------------------ 累计观看 / 音浪（读 RoomStats 的协议字段，见 PROTO_TOTAL 上面的依据）
 
     /** Room#getStats()（名字没混淆），第一次用时按名字找好并缓存。 */
     private static Method mGetStats;
-    /** getStats() 返回对象的运行时类，以及这个类里认出的读取方法；类变了才重新找。 */
+    /** 上一次见到的 RoomStats 运行时类；类变了就清掉下面的缓存。 */
     private static Class<?> statsCls;
-    private static Method mTotal;
+    /** protoName → tag；一个 RoomStats 类里是固定的。 */
+    private static final HashMap<String, Integer> TAGS = new HashMap<>();
+    /** 按「类 → 字段名」缓存找好的 Field（类里没有这个名字的存 null 标记，不反复找）。 */
+    private static final HashMap<Class<?>, HashMap<String, Field>> FIELDS = new HashMap<>();
 
     /**
-     * 累计观看人数；Room 还没交过来 / 方法没找到 / 值读不出来都返回 -1。
-     * t3 = RoomStats 的 total_user（反编译：t3() 读 meta_total_user，mj() 读 total_user_str）；它是混淆名，抖音更新后会变，那时这一项显示「-」。
+     * 页面的 Room → getStats() → 数据节点里 protoName 对应编号的值；Room 还没交过来 / 路径上哪一层没有 / 编号不在表里 / 值不是数字，都返回 -1。
+     * 主线程，只在刷新时调用，不在钩子回调里。
      */
-    private static long totalOf(Page pg) {
+    private static long statOf(Page pg, String proto) {
         try {
             Object room = pg.roomRef != null ? pg.roomRef.get() : null;
             Class<?> rc = roomCls;
@@ -434,14 +447,39 @@ final class LiveHook {
             if (st == null) return -1;
             if (st.getClass() != statsCls) {
                 statsCls = st.getClass();
-                mTotal = statsMethod(statsCls, STAT_TOTAL);
+                TAGS.clear();
             }
-            Method m = mTotal;
-            if (m == null) return -1;
-            Object v = m.invoke(st);
-            if (v instanceof Number) {
-                long n = ((Number) v).longValue();
-                return n >= 0 ? n : -1;
+            Object node = fieldOf(fieldOf(st, "userCompositionDelegate"), "dataNode");
+            if (node == null) return -1;
+            Integer tag = TAGS.get(proto);
+            if (tag == null) {
+                Object meta = fieldOf(node, "metaForSerialization");
+                Object d = fieldOf(meta, "d");
+                if (!(d instanceof Map)) return -1;
+                for (Object fm : ((Map<?, ?>) d).values()) {
+                    if (fm == null || !proto.equals(fieldOf(fm, "protoName"))) continue;
+                    Object tg = fieldOf(fm, "tag");
+                    if (tg instanceof Integer) {
+                        tag = (Integer) tg;
+                        TAGS.put(proto, tag);
+                    }
+                    break;
+                }
+                if (tag == null) return -1;
+            }
+            Object holder = fieldOf(fieldOf(node, "fieldValues"), "dataHolder");
+            Object ks = fieldOf(holder, "keyTable"), vs = fieldOf(holder, "valueTable");
+            if (!(ks instanceof int[]) || !(vs instanceof Object[])) return -1;
+            int[] keys = (int[]) ks;
+            Object[] vals = (Object[]) vs;
+            int n = Math.min(keys.length, vals.length);
+            int t = tag;
+            for (int i = 0; i < n; i++) {
+                if (keys[i] != t) continue;
+                Object v = vals[i];
+                if (!(v instanceof Number)) return -1;
+                long x = ((Number) v).longValue();
+                return x >= 0 ? x : -1;
             }
             return -1;
         } catch (Throwable t) {
@@ -449,19 +487,31 @@ final class LiveHook {
         }
     }
 
-    /** 按名字、无参、非静态、返回 int / long，在类里找一个读取方法；找不到返回 null（那一项显示「-」，不换别的方法）。 */
-    private static Method statsMethod(Class<?> c, String name) {
+    /** 按名字读对象上的字段（本类或父类里声明的，名字精确匹配）；对象为 null / 没有这个字段 / 读不出来返回 null。 */
+    private static Object fieldOf(Object o, String name) {
+        if (o == null) return null;
         try {
-            for (Method m : c.getDeclaredMethods()) {
-                if (!m.getName().equals(name) || m.getParameterTypes().length != 0 || Modifier.isStatic(m.getModifiers())) continue;
-                Class<?> r = m.getReturnType();
-                if (r != int.class && r != long.class) continue;
-                m.setAccessible(true);
-                return m;
+            Class<?> c = o.getClass();
+            HashMap<String, Field> m = FIELDS.get(c);
+            if (m == null) {
+                m = new HashMap<>();
+                FIELDS.put(c, m);
             }
-        } catch (Throwable ignored) {
+            Field f = m.get(name);
+            if (f == null && !m.containsKey(name)) {
+                for (Class<?> k = c; k != null && f == null; k = k.getSuperclass()) {
+                    try {
+                        f = k.getDeclaredField(name);
+                    } catch (NoSuchFieldException ignored) {
+                    }
+                }
+                if (f != null) f.setAccessible(true);
+                m.put(name, f);
+            }
+            return f == null ? null : f.get(o);
+        } catch (Throwable t) {
+            return null;
         }
-        return null;
     }
 
     // ------------------------------------------------------------ 在线人数（钩人数推送）

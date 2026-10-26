@@ -44,7 +44,7 @@ final class VolPanel {
     private VolPanel() {}
 
     private static final String TAG = "dyin_vol";
-    private static final int W_DP = 44;      // 条的粗细（竖放是宽，横放是高）
+    private static final int W_DP = 40;      // 条的粗细（竖放是宽，横放是高）
     private static final int BTN_DP = 40;    // 一个加 / 减键沿条方向的长度
     private static final int VAL_DP = 44;    // 当前音量块沿条方向的长度
     private static final int SEP_DP = 8;     // 组与组之间的间隔

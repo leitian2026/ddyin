@@ -23,11 +23,12 @@ import android.widget.TextView;
  * AudioManager 的 STREAM_MUSIC（getStreamVolume / getStreamMaxVolume / setStreamVolume，flags = 0 不弹系统音量条），
  * 系统音量变了（实体键 / 别处改）靠广播 android.media.VOLUME_CHANGED_ACTION 刷新读数。
  *
- * 从上到下：大步长 ＋（旁边大字 = 步长）、普通 ＋（旁边小字 1）、当前音量（拖这里挪浮窗）、普通 －、大步长 －。
+ * 从上到下：当前音量（拖这里挪浮窗）、大步长 ＋（旁边大字 = 步长）、普通 ＋（旁边小字 1）、普通 －、大步长 －。
  * 大步长在设置页自定义（volStep，1～100）；普通那一对固定 ±1。
  *
  * 不是钩子：不挂任何方法，只在 Activity.onResume（DanmakuHook.hookResume 已经挂着的框架方法）里被调到；没有定时器、没有轮询，
- * 没有长按连发。广播接收器跟着浮窗挂到窗口 / 离开窗口注册 / 注销，浮窗不在时不占任何东西。全部用代码画（抖音进程里读不到模块的资源）。
+ * 没有长按连发。广播接收器只在浮窗所在窗口可见时注册（切后台 / 离开窗口就注销），只认音乐流的变化、读数没变不刷新；
+ * 拖动时只改 translation（不触发整页重新布局），抬手才落到 margin。浮窗不在时不占任何东西。全部用代码画（抖音进程里读不到模块的资源）。
  * 开关关掉或没开：回到前台时把已经加上的浮窗撤掉。位置（dp，左 / 上）单独存在 dyin_pos.properties 里，和别的位置一样不被设置页冲掉。
  */
 final class VolPanel {
@@ -68,11 +69,14 @@ final class VolPanel {
         private float downRawX, downRawY;
         private int startL, startT;
         private boolean receiverOn;
+        private int shown = -1; // 当前显示的音量，没变就不刷新
 
         private final BroadcastReceiver receiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
                 try {
+                    // 只认音乐流（别的流变了不用刷新）
+                    if (intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_TYPE", -1) != AudioManager.STREAM_MUSIC) return;
                     refresh();
                 } catch (Throwable ignored) {
                 }
@@ -93,9 +97,6 @@ final class VolPanel {
             setBackground(bg);
             setPadding(dp(ctx, 2), dp(ctx, 4), dp(ctx, 2), dp(ctx, 4));
 
-            addView(row(ctx, "＋", String.valueOf(step), true, step));
-            addView(row(ctx, "＋", "1", false, 1));
-
             tvVal = new TextView(ctx);
             tvVal.setTextColor(Color.WHITE);
             tvVal.setTextSize(15);
@@ -113,6 +114,8 @@ final class VolPanel {
             });
             addView(tvVal, new LayoutParams(-1, dp(ctx, VAL_DP)));
 
+            addView(row(ctx, "＋", String.valueOf(step), true, step));
+            addView(row(ctx, "＋", "1", false, 1));
             addView(row(ctx, "－", "1", false, -1));
             addView(row(ctx, "－", String.valueOf(step), true, -step));
         }
@@ -165,8 +168,10 @@ final class VolPanel {
         }
 
         void refresh() {
-            String s = String.valueOf(am.getStreamVolume(AudioManager.STREAM_MUSIC));
-            if (!s.contentEquals(tvVal.getText())) tvVal.setText(s);
+            int v = am.getStreamVolume(AudioManager.STREAM_MUSIC);
+            if (v == shown) return;
+            shown = v;
+            tvVal.setText(String.valueOf(v));
         }
 
         /** 按配置里的位置（dp，左 / 上；-1 = 默认：靠右、偏上）摆好，并保证整块在窗口里。 */
@@ -204,8 +209,18 @@ final class VolPanel {
                 startL = lp.leftMargin;
                 startT = lp.topMargin;
             } else if (a == MotionEvent.ACTION_MOVE) {
-                applyMargins(startL + (int) (e.getRawX() - downRawX), startT + (int) (e.getRawY() - downRawY), p.getWidth(), p.getHeight());
+                // 只改 translation，不触发整页重新布局；范围限制在窗口内
+                int w = getWidth(), h = getHeight();
+                int l = Math.max(0, Math.min(Math.max(0, p.getWidth() - w), startL + (int) (e.getRawX() - downRawX)));
+                int t = Math.max(0, Math.min(Math.max(0, p.getHeight() - h), startT + (int) (e.getRawY() - downRawY)));
+                setTranslationX(l - lp.leftMargin);
+                setTranslationY(t - lp.topMargin);
             } else if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) {
+                lp.leftMargin += Math.round(getTranslationX());
+                lp.topMargin += Math.round(getTranslationY());
+                setTranslationX(0);
+                setTranslationY(0);
+                setLayoutParams(lp);
                 float d = getContext().getResources().getDisplayMetrics().density;
                 DanmakuConfig c = DanmakuHook.cfg;
                 c.volX = Math.round(lp.leftMargin / d);
@@ -215,26 +230,41 @@ final class VolPanel {
             return true;
         }
 
-        @Override
-        protected void onAttachedToWindow() {
-            super.onAttachedToWindow();
+        private void register() {
             if (receiverOn) return;
             IntentFilter f = new IntentFilter("android.media.VOLUME_CHANGED_ACTION");
             if (Build.VERSION.SDK_INT >= 33) getContext().registerReceiver(receiver, f, Context.RECEIVER_EXPORTED);
             else getContext().registerReceiver(receiver, f);
             receiverOn = true;
-            refresh();
+            refresh(); // 不可见期间可能变过
+        }
+
+        private void unregister() {
+            if (!receiverOn) return;
+            try {
+                getContext().unregisterReceiver(receiver);
+            } catch (Throwable ignored) {
+            }
+            receiverOn = false;
+        }
+
+        @Override
+        protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            if (getWindowVisibility() == VISIBLE) register();
+        }
+
+        /** 窗口不可见（切后台 / 锁屏）就注销广播，回来再注册。 */
+        @Override
+        protected void onWindowVisibilityChanged(int visibility) {
+            super.onWindowVisibilityChanged(visibility);
+            if (visibility == VISIBLE) register();
+            else unregister();
         }
 
         @Override
         protected void onDetachedFromWindow() {
-            if (receiverOn) {
-                try {
-                    getContext().unregisterReceiver(receiver);
-                } catch (Throwable ignored) {
-                }
-                receiverOn = false;
-            }
+            unregister();
             super.onDetachedFromWindow();
         }
     }

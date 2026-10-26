@@ -340,7 +340,7 @@ public class MainActivity extends Activity {
         watch(etVolStep);
         Section sVol = new Section("音量竖条浮窗", false, swVol,
                 () -> swVol.isChecked() ? "已开启 · " + (cbVolHoriz.isChecked() ? "横放" : "竖放") + " · 大步长 " + etVolStep.getText().toString().trim() : "已关闭");
-        sVol.body.addView(note("在抖音页面上盖一个条，直接调系统媒体音量，按住最前面的当前音量拖动可以挪位置（位置在抖音里拖，这里不用调）。默认竖放，从上到下：当前音量、大步长 ＋、普通 ＋（固定加 1）、普通 －（固定减 1）、大步长 －；勾选横放后从左到右是同样的顺序。大步长旁边是大字，普通的旁边是小字。"));
+        sVol.body.addView(note("在抖音页面上盖一组按键（没有底板），直接调系统媒体音量，按住最前面的当前音量拖动可以挪位置（位置在抖音里拖，这里不用调）。当前音量块会按音量比例填充绿色电平；后面是两组连体的加减键：橙色是大步长，蓝色是 ±1（固定）。竖放时每组上 ＋ 下 －，横放时每组左 － 右 ＋。"));
         cbVolHoriz = new CheckBox(this);
         cbVolHoriz.setText("横放");
         cbVolHoriz.setTextSize(15);

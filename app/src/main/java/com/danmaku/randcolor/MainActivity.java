@@ -47,7 +47,8 @@ public class MainActivity extends Activity {
     private boolean dark;
     private int cBg, cCard, cStroke, cText, cSub, cPrimary, cPrimarySoft, cField, cInset;
 
-    private EditText etPkg, etIdle;
+    private EditText etPkg, etIdle, etVolStep;
+    private Switch swVol;
     /** 首页顶部标签行里的 13 个标签（来自 TextRec 追踪，40.7.0）；勾选 = 隐藏。 */
     private static final String[] TAB_LABELS = {"推荐", "关注", "热点", "同城", "商城", "经验", "游戏", "少儿", "精选", "团购", "免费看剧", "短剧", "直播"};
     private final CheckBox[] cbTabs = new CheckBox[TAB_LABELS.length];
@@ -327,6 +328,22 @@ public class MainActivity extends Activity {
         sIdle.body.addView(note("连续这么多分钟没有触摸、按键，也没有回到前台，就结束抖音进程（后台也计时）。回到前台算一次操作，重新开始。填 0 = 关闭。"));
         sIdle.body.addView(etIdle);
         place(sIdle);
+
+        // ================= 音量浮窗
+        beginGroup(root, "音量浮窗");
+
+        swVol = new Switch(this);
+        etVolStep = field();
+        etVolStep.setInputType(InputType.TYPE_CLASS_NUMBER);
+        etVolStep.setHint("1～100，默认 6");
+        watch(etVolStep);
+        Section sVol = new Section("音量竖条浮窗", false, swVol,
+                () -> swVol.isChecked() ? "已开启 · 大步长 " + etVolStep.getText().toString().trim() : "已关闭");
+        sVol.body.addView(note("在抖音页面上盖一个竖条，直接调系统媒体音量，按住中间的数字拖动可以挪位置（位置在抖音里拖，这里不用调）。从上到下：大步长 ＋、普通 ＋（固定加 1）、当前音量、大步长 －、普通 －（固定减 1）；大步长旁边是大字，普通的旁边是小字。"));
+        sVol.body.addView(sub("大步长（按一下加减多少）"));
+        sVol.body.addView(note("比如填 6，按一下大步长的 ＋ 就加 6，－ 就减 6；超出音量范围就停在最大 / 最小。改完保存并应用，抖音回到前台后生效。"));
+        sVol.body.addView(etVolStep);
+        place(sVol);
 
         // ================= 高级
         beginGroup(root, "高级");
@@ -656,6 +673,8 @@ public class MainActivity extends Activity {
         swLp.setChecked(c.lpBtn);
         swTime.setChecked(c.timeAlways);
         etIdle.setText(String.valueOf(c.idleExitMin));
+        swVol.setChecked(c.volOn);
+        etVolStep.setText(String.valueOf(c.volStep));
         for (int i = 0; i < TAB_LABELS.length; i++) {
             boolean hide = false;
             for (String h : c.hiddenTabs) if (TAB_LABELS[i].equals(h)) hide = true;
@@ -699,6 +718,12 @@ public class MainActivity extends Activity {
         c.dtapToComment = swDtap.isChecked();
         c.profFav = swProfFav.isChecked();
         c.lpBtn = swLp.isChecked();
+        c.volOn = swVol.isChecked();
+        try {
+            c.volStep = Math.max(1, Math.min(100, Integer.parseInt(etVolStep.getText().toString().trim())));
+        } catch (Throwable t) {
+            c.volStep = 6;
+        }
         c.timeAlways = swTime.isChecked();
         c.pubAlways = swPub.isChecked();
         c.timeSize = timeSizeF.v;

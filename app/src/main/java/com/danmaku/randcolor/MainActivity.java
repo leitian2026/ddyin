@@ -809,6 +809,7 @@ public class MainActivity extends Activity {
             {"prof.pager", "我的主页默认喜欢：记住个人主页的翻页控件（ViewPager#setCurrentItem）"},
             {"prof.enter", "我的主页默认喜欢：点底部「我」时切到喜欢（MainPageFragment$2#onChanged）"},
             {"prof.args", "我的主页默认喜欢：个人页创建时把参数 tab_type 设成喜欢（Fragment#setArguments，MyPandaFragment）"},
+            {"live.dc", "直播间开播时间：页面创建时登记它自己的数据容器（DataCenterV2.create）"},
             {"lp.show", "首页长按改成常驻按键：拦住长按面板的弹出（DialogFragment#show）"},
             {"lp.col", "首页长按改成常驻按键：把按键放进右侧按钮列、头像上方（DraweeView#setController）"},
             {"lp.lay", "首页长按改成常驻按键：登记每一页的长按层（LongPressLayout 构造），点按键触发这一页自己的长按计时任务（不扫描）"},

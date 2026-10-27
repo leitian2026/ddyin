@@ -19,6 +19,9 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import java.lang.ref.WeakReference;
+import java.util.Map;
+import java.util.WeakHashMap;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -33,6 +36,9 @@ import android.widget.TextView;
  * 大步长一组（橙色，竖放上 ＋ 下 －，横放左 － 右 ＋，两键之间只隔 1 dp，外轮廓连在一起）、
  * ±1 一组（蓝色，同样的连体样式）。同一组加减一眼能看出是一对，两组靠颜色和间隔分开。
  * 大步长在设置页自定义（volStep，1～100）；普通那一对固定 ±1；横放 / 竖放在设置页选（volHoriz）。
+ *
+ * 跟随显示（volFollow，默认关）：开着时只有这个窗口里有视频时长行（LineBg.Row.follow，显示 / 隐藏 / 挂上 / 摘下由 View 自己的回调告诉这里）
+ * 或直播间的开播时间文字（LiveHook 的 show / hide / dispose 告诉这里）在显示，浮窗才显示，都没有就 GONE；不加钩子、不轮询、不扫控件。
  *
  * 不是钩子：不挂任何方法，只在 Activity.onResume（DanmakuHook.hookResume 已经挂着的框架方法）里被调到；没有定时器、没有轮询，
  * 没有长按连发。广播接收器只在浮窗所在窗口可见时注册（切后台 / 离开窗口就注销），只认音乐流的变化、读数没变不刷新（也不重绘）；
@@ -61,6 +67,7 @@ final class VolPanel {
         View old = decor.findViewWithTag(TAG);
         if (!DanmakuHook.cfg.volOn) {
             if (old != null && old.getParent() instanceof ViewGroup) ((ViewGroup) old.getParent()).removeView(old);
+            BARS.remove(decor);
             return;
         }
         if (old instanceof Bar) {
@@ -68,6 +75,8 @@ final class VolPanel {
             if (ob.step == Math.max(1, Math.min(100, DanmakuHook.cfg.volStep)) && ob.horiz == DanmakuHook.cfg.volHoriz
                     && ob.wDp == DanmakuHook.cfg.volW && ob.lDp == DanmakuHook.cfg.volL) {
                 ((Bar) old).placeAndRefresh();
+                BARS.put(decor, new WeakReference<>(ob));
+                applyFollow(decor, ob);
                 return;
             }
             decor.removeView(old); // 设置页改了步长 / 方向 / 大小：重建
@@ -75,6 +84,75 @@ final class VolPanel {
         Bar bar = new Bar(decor.getContext());
         decor.addView(bar, new FrameLayout.LayoutParams(bar.barW(), bar.barH(), Gravity.TOP | Gravity.START));
         bar.placeAndRefresh();
+        BARS.put(decor, new WeakReference<>(bar));
+        applyFollow(decor, bar);
+    }
+
+    // ------------------------------------------------------------ 跟随显示（volFollow）
+
+    /** 一个「在显示」的来源：视频时长那一行，或直播间的一页（开播时间那块文字）。 */
+    private static final class Src {
+        boolean on;
+        WeakReference<View> decor; // 它在哪个窗口里（Activity 的根）
+    }
+
+    /** 来源控件 → 状态；键是弱引用，页面 / 行没了条目就没了。只在主线程用。 */
+    private static final WeakHashMap<View, Src> SRC = new WeakHashMap<>();
+    /** Activity 的根 → 这个窗口里的浮窗。值也用弱引用：浮窗的父控件就是根，强引用会让键永远回收不了。 */
+    private static final WeakHashMap<View, WeakReference<Bar>> BARS = new WeakHashMap<>();
+
+    /** 视频时长行显示 / 隐藏 / 挂上 / 摘下（LineBg.Row 的回调）。 */
+    static void source(View v, boolean on) {
+        try {
+            set(v, on);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 直播间这一页的开播时间文字显示 / 隐藏 / 撤掉（LiveHook 的 show / hide / dispose）。 */
+    static void live(View root, boolean on) {
+        try {
+            set(root, on);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void set(View key, boolean on) {
+        Src s = SRC.get(key);
+        if (s == null) {
+            if (!on) return; // 从没显示过又说隐藏：什么都不用做
+            s = new Src();
+            SRC.put(key, s);
+        }
+        View top = on ? key.getRootView() : null; // 隐藏时沿用上次记的窗口（摘下时父链可能已经断了）
+        View old = s.decor == null ? null : s.decor.get();
+        if (s.on == on && (top == null || top == old)) return; // 没变
+        s.on = on;
+        if (top != null && top != old) s.decor = new WeakReference<>(top);
+        View decor = top != null ? top : old;
+        if (old != null && top != null && top != old) applyWindow(old); // 换窗口：旧窗口也要重算
+        if (decor != null) applyWindow(decor);
+    }
+
+    private static void applyWindow(View decor) {
+        WeakReference<Bar> w = BARS.get(decor);
+        Bar bar = w == null ? null : w.get();
+        if (bar != null) applyFollow(decor, bar);
+    }
+
+    /** 关着「跟随显示」：一直显示；开着：这个窗口里有来源在显示才显示。 */
+    private static void applyFollow(View decor, Bar bar) {
+        boolean show = !DanmakuHook.cfg.volFollow || anySource(decor);
+        int v = show ? View.VISIBLE : View.GONE;
+        if (bar.getVisibility() != v) bar.setVisibility(v);
+    }
+
+    private static boolean anySource(View decor) {
+        for (Map.Entry<View, Src> e : SRC.entrySet()) {
+            Src s = e.getValue();
+            if (s.on && s.decor != null && s.decor.get() == decor) return true;
+        }
+        return false;
     }
 
     // ------------------------------------------------------------ 浮窗本体

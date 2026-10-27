@@ -45,7 +45,7 @@ public final class DanmakuConfig {
     /** 位置调节模式：设置页点「去抖音里调整」时置 true；进直播间后抖音里出现位置浮窗，点「完成 / 取消」时由抖音里的浮窗改回 false 并写回文件。设置页自己存的配置里永远是 false。 */
     public boolean liveAdjust = false;
     /** 视频文案 / 视频时长 / 发布日期地点每一行字后面的灰色底的不透明度（0～100，%）；0 = 不画。见 LineBg。 */
-    public int lineBg = 70;
+    public int lineBg = 100;
     /** 文字底条的填充颜色（0xAARRGGBB，不透明）；0 = 默认（白色，和音量块的底一样；1.42.17 前是近黑 #101010）。不透明度仍由 lineBg 管，描边始终白色。见 LineBg。 */
     public int lineBgColor = 0;
     /** 模块自己决定颜色的字（弹幕随机色）的最低亮度（0～100，%，每档 5）：比这暗的颜色往白色提亮；0 = 不提亮。见 LineBg.legible。 */
@@ -246,7 +246,7 @@ public final class DanmakuConfig {
         c.liveColor = parseColor(p.getProperty("liveColor", "0"));
         c.liveX = parsePct(p.getProperty("liveX", "3"), 3);
         c.liveY = parsePct(p.getProperty("liveY", "10"), 10);
-        c.lineBg = parsePct(p.getProperty("lineBg", "70"), 70);
+        c.lineBg = parsePct(p.getProperty("lineBg", "100"), 100);
         c.lineBgColor = parseColor(p.getProperty("lineBgColor", "0"));
         c.textLift = parsePct(p.getProperty("textLift", "30"), 30);
         c.blankH = Math.max(-1, Math.min(200, parseIntOr(p.getProperty("blankH", "-1"), -1)));

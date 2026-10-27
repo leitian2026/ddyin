@@ -211,7 +211,7 @@ public class MainActivity extends Activity {
         sBar.body.addView(segBarSel);
         place(sBar);
 
-        bgF = new PctField(70);
+        bgF = new PctField(100);
         liftF = new PctField(30);
         bgColorF = new ColorField("默认（近黑）", "选择底色");
         Section sBg = new Section("文字底条", false, null, () -> (bgF.v == 0 ? "已关闭" : "不透明度 " + bgF.v + "%") + " · 字最低亮度 " + liftF.v + "%");

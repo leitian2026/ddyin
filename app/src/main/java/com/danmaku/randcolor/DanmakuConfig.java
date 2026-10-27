@@ -63,11 +63,13 @@ public final class DanmakuConfig {
     public boolean vidAdjust = false;
     /** 直播间数据那块文字的模板，见 LiveFormat。 */
     public String liveFormat = LiveFormat.DEFAULT;
-    /** 音量浮窗（竖条，见 VolPanel）：开关；大步长那一对 ＋／－ 按一下加减多少（1～100，默认 6；普通那一对固定 ±1）。 */
+    /** 音量浮窗（见 VolPanel）：开关；大步长那一对 ＋／－ 按一下加减多少（1～100，默认 6；普通那一对固定 ±1）。 */
     public boolean volOn = false;
     public int volStep = 6;
     /** 音量浮窗横放（默认竖放）：横放时从左到右 = 当前音量、大步长 ＋、＋1、－1、大步长 －。 */
     public boolean volHoriz = false;
+    /** 音量浮窗固定位置（默认开）：开着时浮窗拖不动；关掉才能按住当前音量拖动挪位置。 */
+    public boolean volLock = true;
     /** 音量浮窗大小（dp）：宽 = 条的粗细（竖放是宽、横放是高），长 = 条沿方向的总长；设置页里每按一下 ±1。默认 40 × 222 就是原来的大小。 */
     public static final int VOL_W_MIN = 20, VOL_W_MAX = 120, VOL_L_MIN = 120, VOL_L_MAX = 800;
     public int volW = 40, volL = 222;
@@ -100,6 +102,7 @@ public final class DanmakuConfig {
             p.setProperty("volOn", String.valueOf(volOn));
             p.setProperty("volStep", String.valueOf(volStep));
             p.setProperty("volHoriz", String.valueOf(volHoriz));
+            p.setProperty("volLock", String.valueOf(volLock));
             p.setProperty("volW", String.valueOf(volW));
             p.setProperty("volL", String.valueOf(volL));
             p.setProperty("liveTime", String.valueOf(liveTime));
@@ -243,6 +246,7 @@ public final class DanmakuConfig {
         c.volOn = Boolean.parseBoolean(p.getProperty("volOn", "false").trim());
         c.volStep = Math.max(1, Math.min(100, parseIntOr(p.getProperty("volStep", "6"), 6)));
         c.volHoriz = Boolean.parseBoolean(p.getProperty("volHoriz", "false").trim());
+        c.volLock = Boolean.parseBoolean(p.getProperty("volLock", "true").trim());
         c.volW = Math.max(VOL_W_MIN, Math.min(VOL_W_MAX, parseIntOr(p.getProperty("volW", "40"), 40)));
         c.volL = Math.max(VOL_L_MIN, Math.min(VOL_L_MAX, parseIntOr(p.getProperty("volL", "222"), 222)));
         c.vidAdjust = Boolean.parseBoolean(p.getProperty("vidAdjust", "false").trim());

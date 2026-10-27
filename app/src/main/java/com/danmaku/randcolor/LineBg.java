@@ -38,12 +38,12 @@ final class LineBg {
     private static final Matrix MAT = new Matrix();
     /**
      * 省电（1.42.12）：玻璃（约 12 次 clip + 渐变）只在缓存没命中时画一次到一张小位图里，之后每个底只是 3 次 drawBitmap（左端、右端、中间拉伸）。
-     * 缓存按「底高、底色、不透明度」认，6 个槽轮流替换；设置改了或字号变了才会重画。命中时绘制路径里不分配；没命中时才新建一张位图。
+     * 缓存按「底高、底色、不透明度」认，16 个槽轮流替换；设置改了或字号变了才会重画。命中时绘制路径里不分配；没命中时才新建一张位图。
      */
-    private static final int CACHE_N = 6;
+    private static final int CACHE_N = 16;
     private static final Bitmap[] C_BMP = new Bitmap[CACHE_N];
     private static final int[] C_H = new int[CACHE_N], C_COL = new int[CACHE_N], C_A = new int[CACHE_N];
-    private static int cNext;
+    private static int cNext, cLast; // cLast：上一次命中的槽，同一字号的弹幕连着画时直接命中，不用扫一遍
     private static final Canvas OFF = new Canvas();
     private static final Rect SRC = new Rect();
     private static final RectF DST = new RectF();
@@ -127,10 +127,15 @@ final class LineBg {
         int h = Math.max(2, Math.round(b - t));
         int m = (int) Math.ceil(SOFT_SP * sd); // 柔边占的位图边距
         int idx = -1;
-        for (int i = 0; i < CACHE_N; i++) {
-            if (C_BMP[i] != null && C_H[i] == h && C_COL[i] == gray && C_A[i] == a) {
-                idx = i;
-                break;
+        int q = cLast;
+        if (C_BMP[q] != null && C_H[q] == h && C_COL[q] == gray && C_A[q] == a) {
+            idx = q;
+        } else {
+            for (int i = 0; i < CACHE_N; i++) {
+                if (C_BMP[i] != null && C_H[i] == h && C_COL[i] == gray && C_A[i] == a) {
+                    idx = i;
+                    break;
+                }
             }
         }
         int bw = h + FLAT_PX + 2 * m, bh = h + 2 * m;
@@ -149,6 +154,7 @@ final class LineBg {
             C_COL[idx] = gray;
             C_A[idx] = a;
         }
+        cLast = idx;
         Bitmap bm = C_BMP[idx];
         int cap = m + (h + 1) / 2; // 一端：柔边 + 半圆
         float L = l - m, T = t - m, R = r + m, B = b + m;

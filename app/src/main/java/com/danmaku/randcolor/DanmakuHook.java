@@ -39,20 +39,23 @@ final class DanmakuHook {
     /** 上一次 paint 是 Stroke 且底开着：下一次 Fill 要换上和音量块字一样的投影。 */
     private static boolean pendingShadow;
     private static Object shadowObj;
-    private static boolean shadowTried;
+    private static int shadowPct = -1;
 
     /**
-     * 和 VolPanel.Val 的字一样的投影：Shadow(color = 0xAA000000, offset = (0, 1dp), blurRadius = 2dp)，按像素。
+     * 和 VolPanel.Val 的字一样的投影：Shadow(color = 黑色（不透明度 = 设置页 lineShadow）, offset = (0, 1dp), blurRadius = 2dp)，按像素。
      * 没在抖音 40.7.0 上验证（Shadow 是 Kotlin value class 构造，按「(long, long, float) 带 / 不带 DefaultConstructorMarker」反射找）；
      * 建不出来就一直 null，弹幕保持原样。建一次缓存。
      */
     private static Object shadowObj(Class<?> cls) {
-        if (shadowObj != null || shadowTried || cls == null) return shadowObj;
-        shadowTried = true;
+        int pct = cfg.lineShadow;
+        if (pct <= 0 || cls == null) return null; // 0 = 不加投影
+        if (pct == shadowPct) return shadowObj; // 同一个不透明度只建一次（建不出来也记着，不重试）
+        shadowPct = pct;
+        shadowObj = null;
         try {
             float den = android.content.res.Resources.getSystem().getDisplayMetrics().density;
             float blur = (int) (2f * den + 0.5f), dy = (int) (den + 0.5f);
-            long color = (0xAA000000L & 0xFFFFFFFFL) << 32; // sRGB Color：ARGB 放在高 32 位，低位 0 = sRGB
+            long color = ((long) Math.round(255f * pct / 100f) << 24 & 0xFFFFFFFFL) << 32; // sRGB Color：ARGB 放在高 32 位，低位 0 = sRGB
             long off = ((long) Float.floatToRawIntBits(0f) << 32) | (Float.floatToRawIntBits(dy) & 0xFFFFFFFFL);
             for (java.lang.reflect.Constructor<?> k : cls.getDeclaredConstructors()) {
                 Class<?>[] t = k.getParameterTypes();

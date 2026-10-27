@@ -499,6 +499,7 @@ final class PubHook {
                 if (!(self instanceof TextView) || ((View) self).getTag(CAP_TAG) == null) return;
                 int bg = cf.lineBg;
                 if (bg > 0 && p.args != null && p.args.length > 0 && p.args[0] instanceof android.graphics.Canvas) {
+                    LineBg.shadow((TextView) self); // 字的投影
                     LineBg.drawBars((android.graphics.Canvas) p.args[0], (TextView) self, bg); // 文字灰色底：画在字之前
                 }
                 int want = cf.capColor;
@@ -553,11 +554,11 @@ final class PubHook {
                     if (introCls == null) return; // 容器类还没找到：先不下结论，下次绘制再认
                     tag = introOf(t) != null ? Boolean.TRUE : Boolean.FALSE; // 不在视频信息容器里的 title（别处的标题）打 FALSE，以后一次 tag 比较就返回
                     t.setTag(NAME_TAG, tag);
-                    if (tag == Boolean.TRUE && cf.lineBg > 0) LineBg.shadow(t); // 作者名的字投影和音量块一样
                 }
                 if (tag != Boolean.TRUE) return;
                 int bg = cf.lineBg;
                 if (bg > 0 && p.args != null && p.args.length > 0 && p.args[0] instanceof android.graphics.Canvas) {
+                    LineBg.shadow(t); // 字的投影
                     LineBg.drawBars((android.graphics.Canvas) p.args[0], t, bg); // 灰色底：画在字之前
                 }
                 int want = cf.nameColor;
@@ -892,7 +893,6 @@ final class PubHook {
     /** 认出是视频文案：打 tag（cap.draw 只改打过 tag 的），挂一次布局监听（展开 / 收起让布局变了，重设样式）。 */
     private static void markCaption(TextView t) {
         t.setTag(CAP_TAG, Boolean.TRUE);
-        if (DanmakuHook.cfg.lineBg > 0) LineBg.shadow(t); // 文案的字投影和音量块一样
         if (t.getTag(CAPW_TAG) == null) {
             t.setTag(CAPW_TAG, Boolean.TRUE);
             t.addOnLayoutChangeListener(CAP_LISTENER);

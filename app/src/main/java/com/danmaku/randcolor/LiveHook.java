@@ -695,6 +695,7 @@ final class LiveHook {
         }
         if (!text.contentEquals(t.getText())) t.setText(text);
         if (t.getVisibility() != View.VISIBLE) t.setVisibility(View.VISIBLE);
+        VolPanel.live(root, true); // 音量浮窗「跟随显示」：这一页的数据块在显示
         place(pg);
     }
 
@@ -717,6 +718,8 @@ final class LiveHook {
     private static void hide(Page pg) {
         TextView t = tvOf(pg);
         if (t != null && t.getVisibility() != View.GONE) t.setVisibility(View.GONE);
+        ViewGroup root = rootOf(pg);
+        if (root != null) VolPanel.live(root, false);
     }
 
     /** 撤掉这个页面上的文字和监听。 */
@@ -725,6 +728,7 @@ final class LiveHook {
             ViewGroup root = rootOf(pg);
             TextView t = tvOf(pg);
             if (root != null) {
+                VolPanel.live(root, false);
                 if (t != null) root.getOverlay().remove(t);
                 if (pg.ll != null) root.removeOnLayoutChangeListener(pg.ll);
             }

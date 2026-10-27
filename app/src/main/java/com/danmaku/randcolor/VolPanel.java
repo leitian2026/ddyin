@@ -24,7 +24,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 /**
- * 音量浮窗：盖在抖音当前页面窗口里的一组按键，可拖动位置。只取「怎么接到系统音量」：
+ * 音量浮窗：盖在抖音当前页面窗口里的一组按键，可拖动位置（设置页的「固定位置」默认开着，关掉才能拖）。只取「怎么接到系统音量」：
  * AudioManager 的 STREAM_MUSIC（getStreamVolume / getStreamMaxVolume / setStreamVolume，flags = 0 不弹系统音量条），
  * 系统音量变了（实体键 / 别处改）靠广播 android.media.VOLUME_CHANGED_ACTION 刷新读数。
  *
@@ -260,10 +260,11 @@ final class VolPanel {
             setLayoutParams(lp);
         }
 
-        /** 拖中间的读数挪浮窗；抬手保存位置（dp）。 */
+        /** 拖中间的读数挪浮窗（设置页「固定位置」开着时不动）；抬手保存位置（dp）。 */
         private boolean drag(MotionEvent e) {
             ViewGroup p = (ViewGroup) getParent();
             if (p == null) return true;
+            if (DanmakuHook.cfg.volLock) return true; // 固定位置：吃掉触摸，不挪
             int a = e.getActionMasked();
             FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) getLayoutParams();
             if (a == MotionEvent.ACTION_DOWN) {

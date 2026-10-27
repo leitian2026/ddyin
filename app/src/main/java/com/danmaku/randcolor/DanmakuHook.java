@@ -47,14 +47,15 @@ final class DanmakuHook {
      * 建不出来就一直 null，弹幕保持原样。建一次缓存。
      */
     private static Object shadowObj(Class<?> cls) {
-        int pct = cfg.lineShadow;
+        DanmakuConfig c = cfg;
+        int pct = c.lineShadow, key = pct | c.lineShadowR << 8 | c.lineShadowDy << 16;
         if (pct <= 0 || cls == null) return null; // 0 = 不加投影
-        if (pct == shadowPct) return shadowObj; // 同一个不透明度只建一次（建不出来也记着，不重试）
-        shadowPct = pct;
+        if (key == shadowPct) return shadowObj; // 同一个不透明度只建一次（建不出来也记着，不重试）
+        shadowPct = key;
         shadowObj = null;
         try {
             float den = android.content.res.Resources.getSystem().getDisplayMetrics().density;
-            float blur = (int) (2f * den + 0.5f), dy = (int) (den + 0.5f);
+            float blur = Math.max(1, Math.round(c.lineShadowR * den / 2f)), dy = Math.round(c.lineShadowDy * den / 2f);
             long color = ((long) Math.round(255f * pct / 100f) << 24 & 0xFFFFFFFFL) << 32; // sRGB Color：ARGB 放在高 32 位，低位 0 = sRGB
             long off = ((long) Float.floatToRawIntBits(0f) << 32) | (Float.floatToRawIntBits(dy) & 0xFFFFFFFFL);
             for (java.lang.reflect.Constructor<?> k : cls.getDeclaredConstructors()) {

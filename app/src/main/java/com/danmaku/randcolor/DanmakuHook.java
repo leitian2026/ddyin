@@ -283,6 +283,7 @@ final class DanmakuHook {
     private static volatile Method gCount, gLeft, gRight, gTop, gBottom;
     private static final int[] GKEY = new int[256];
     private static final float[] GBOX = new float[256 * 4];
+    private static float SD; // scaledDensity 缓存（主线程绘制用）
 
     private static void drawBg(Object mp, Object composeCanvas, int pct) {
         if (mp == null || composeCanvas == null) return;
@@ -295,7 +296,8 @@ final class DanmakuHook {
             measure(mp, o);
             GKEY[slot] = key;
         }
-        float sd = android.content.res.Resources.getSystem().getDisplayMetrics().scaledDensity;
+        float sd = SD;
+        if (sd <= 0f) SD = sd = android.content.res.Resources.getSystem().getDisplayMetrics().scaledDensity; // 只读一次，不每条弹幕都取
         LineBg.drawBox(nc, GBOX[o], GBOX[o + 1], GBOX[o + 2], GBOX[o + 3], sd, pct);
     }
 

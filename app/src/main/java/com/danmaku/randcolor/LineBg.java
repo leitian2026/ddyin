@@ -10,7 +10,7 @@ import android.widget.TextView;
 
 /**
  * 文字灰色底（1.25.0）：视频文案、视频时长、发布日期地点（1.29.0 起还有弹幕、直播间开播时间），每一行字后面画一条黑色半透明底（类名里的「灰色」是旧叫法），透明度 lineBg（0～100%）在设置页调，0 = 不画。
- * 底 = 这一行的文字框向四周各放大 1sp（宽、高都比字大一个字号档），左右两端再各加长 2px（1.42.5），两端是半圆（圆角半径 = 底高的一半）；多行的底画成一个整体（Path 并集），重叠处不会变深。
+ * 底 = 这一行的文字框向四周各放大 1sp（宽、高都比字大一个字号档），左右两端再各加长 8px（1.42.5 加 2px，1.42.6 起 8px），两端是半圆（圆角半径 = 底高的一半）；多行的底画成一个整体（Path 并集），重叠处不会变深。
  *
  * 画在文字之前：自己的两行（发布信息、时长）用 {@link Row}（TextView 子类，onDraw 先画底再 super）；
  * 抖音的文案控件在 PubHook.DrawHook（MentionTextView#onDraw 之前）里调 {@link #drawBars}；
@@ -47,14 +47,14 @@ final class LineBg {
     /** 底比字多出的边：1sp。柔边向外再延伸 1.5sp（分 3 层逐层变淡）。 */
     private static final float BAR_SP = 1f, SOFT_SP = 1.5f;
     /** 底左右两端再各加长的像素（物理像素，不随字号变）。 */
-    private static final float END_PX = 2f;
+    private static final float END_PX = 8f;
 
     /** 自己放的两行的内边距：3sp，给底和它的模糊边留地方（底只比字多 1sp，模糊边再往外一点）。PubHook 用它抵消行距 / 左边距。 */
     static int pad(Context c) {
         return Math.round(3f * c.getResources().getDisplayMetrics().scaledDensity);
     }
 
-    /** 左右内边距：上下的内边距再加底两端加长的 2px，底的柔边才不会被控件边界裁掉。PubHook 对齐文案左边时也用它。 */
+    /** 左右内边距：上下的内边距再加底两端加长的 8px，底的柔边才不会被控件边界裁掉。PubHook 对齐文案左边时也用它。 */
     static int padX(Context c) {
         return pad(c) + Math.round(END_PX);
     }
@@ -109,7 +109,7 @@ final class LineBg {
         cv.drawPath(PATH, PAINT);
     }
 
-    /** 自己放的两行（发布信息、时长）用的 TextView：先画底再画字；上下留出 3sp、左右留出 3sp + 2px 的内边距，底才不会被控件边界裁掉。 */
+    /** 自己放的两行（发布信息、时长）用的 TextView：先画底再画字；上下留出 3sp、左右留出 3sp + 8px 的内边距，底才不会被控件边界裁掉。 */
     static final class Row extends TextView {
         /** 视频时长那一行：显示 / 隐藏 / 挂上 / 摘下时告诉音量浮窗（VolPanel「跟随显示」）；别的行不通知。 */
         boolean follow;

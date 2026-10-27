@@ -5,6 +5,7 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.text.Layout;
+import android.view.View;
 import android.widget.TextView;
 
 /**
@@ -101,11 +102,33 @@ final class LineBg {
 
     /** 自己放的两行（发布信息、时长）用的 TextView：先画底再画字；四边留出 1sp 的内边距，底才不会被控件边界裁掉。 */
     static final class Row extends TextView {
+        /** 视频时长那一行：显示 / 隐藏 / 挂上 / 摘下时告诉音量浮窗（VolPanel「跟随显示」）；别的行不通知。 */
+        boolean follow;
+
         Row(Context c) {
             super(c);
             int p = pad(c);
             setPadding(p, p, p, p);
             setIncludeFontPadding(false); // 行高 = 字本身的行高，和文案的行距一样
+        }
+
+        // 自己或任何一层父控件显示 / 隐藏都会走到这里（View 自带的分发），不用轮询；isShown 只沿父链往上数，不扫控件
+        @Override
+        protected void onVisibilityChanged(View changedView, int visibility) {
+            super.onVisibilityChanged(changedView, visibility);
+            if (follow) VolPanel.source(this, isShown());
+        }
+
+        @Override
+        protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            if (follow) VolPanel.source(this, isShown());
+        }
+
+        @Override
+        protected void onDetachedFromWindow() {
+            if (follow) VolPanel.source(this, false); // 摘下时父链还在，isShown 会误判成真，这里直接给假
+            super.onDetachedFromWindow();
         }
 
         @Override

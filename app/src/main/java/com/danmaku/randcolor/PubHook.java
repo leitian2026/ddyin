@@ -500,6 +500,7 @@ final class PubHook {
                 int bg = cf.lineBg;
                 if (bg > 0 && p.args != null && p.args.length > 0 && p.args[0] instanceof android.graphics.Canvas) {
                     LineBg.shadow((TextView) self); // 字的投影
+                    LineBg.unclip((TextView) self); // 关掉裁剪，底两端才闭合
                     LineBg.drawBars((android.graphics.Canvas) p.args[0], (TextView) self, bg); // 文字灰色底：画在字之前
                 }
                 int want = cf.capColor;
@@ -559,6 +560,7 @@ final class PubHook {
                 int bg = cf.lineBg;
                 if (bg > 0 && p.args != null && p.args.length > 0 && p.args[0] instanceof android.graphics.Canvas) {
                     LineBg.shadow(t); // 字的投影
+                    LineBg.unclip(t); // 关掉裁剪，底两端才闭合
                     LineBg.drawBars((android.graphics.Canvas) p.args[0], t, bg); // 灰色底：画在字之前
                 }
                 int want = cf.nameColor;

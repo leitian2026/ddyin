@@ -45,11 +45,10 @@ final class LineBg {
     private static final int[] C_H = new int[CACHE_N], C_COL = new int[CACHE_N], C_A = new int[CACHE_N];
     private static int cNext, cLast; // cLast：上一次命中的槽，同一字号的弹幕连着画时直接命中，不用扫一遍
     private static final Canvas OFF = new Canvas();
-    private static final Rect SRC = new Rect();
-    private static final RectF DST = new RectF();
-    private static final Paint BMP = new Paint(Paint.FILTER_BITMAP_FLAG);
-    /** 位图里底中间那一段不随长度变的平直部分（px），左右端半圆各占 h/2。 */
-    private static final int FLAT_PX = 8;
+    private static final Rect CLIP = new Rect();
+    private static final float[] MESH = new float[16]; // 3 × 1 的网格：4 列 × 2 行顶点
+    private static final Paint BMP = new Paint(Paint.FILTER_BITMAP_FLAG); // 端部被缩小时用
+    private static final Paint BMP_NF = new Paint(); // 整数像素 1:1 贴，不过滤
     private static final RectF BOX = new RectF();
     /** 顶部高光的厚度（sp，最厚处；两端变细）。 */
     private static final float RIM_TOP_SP = 1.6f;
@@ -155,25 +154,33 @@ final class LineBg {
         drawPill(cv, l - pad - END_PX, t - pad, r + pad + END_PX, b + pad, sd, pct);
     }
 
-    /** 画一条两端半圆的玻璃（l,t,r,b = 底本身的框，不含柔边）：取缓存位图，左端 / 右端原样、中间拉伸。 */
+    /**
+     * 画一条两端半圆的玻璃（l,t,r,b = 底本身的框，不含柔边）：取缓存位图，左端 / 右端原样、中间拉伸，一次网格贴图画完（原来是 3 次 drawBitmap）。
+     * 省电（1.42.18）：① 整个底（含柔边）在当前裁剪区外的不画（弹幕进出场、被滚出去的）；② 3 次贴图合成 1 次 drawBitmapMesh，位图宽 = 3 份等宽（左端 / 中间平直段 / 右端），网格按 1/3 取样；
+     * ③ 位置取整到整数像素，端部 1:1 贴、不用双线性过滤（只有底比两端还短、端部被缩小时才开过滤）。
+     */
     private static void drawPill(Canvas cv, float l, float t, float r, float b, float sd, int pct) {
         int a = Math.min(100, pct) * 255 / 100;
         int gray = DanmakuHook.cfg.lineBgColor == 0 ? GRAY : (DanmakuHook.cfg.lineBgColor & 0xFFFFFF); // 用户选的底色；0 = 默认
         int h = Math.max(2, Math.round(b - t));
         int m = (int) Math.ceil(SOFT_SP * sd); // 柔边占的位图边距
+        int cap = m + (h + 1) / 2; // 一端：柔边 + 半圆
+        int bw = 3 * cap, bh = h + 2 * m; // 位图 = 左端 | 中间平直段 | 右端，三份等宽
+        int Li = Math.round(l) - m, Ti = Math.round(t) - m, Ri = Math.round(r) + m, Bi = Ti + bh; // 整数像素
+        if (!cv.getClipBounds(CLIP) || Ri <= CLIP.left || Li >= CLIP.right || Bi <= CLIP.top || Ti >= CLIP.bottom) return; // 完全在裁剪区外
+        int key = h | m << 16; // 位图尺寸只跟底高和柔边宽有关
         int idx = -1;
         int q = cLast;
-        if (C_BMP[q] != null && C_H[q] == h && C_COL[q] == gray && C_A[q] == a) {
+        if (C_BMP[q] != null && C_H[q] == key && C_COL[q] == gray && C_A[q] == a) {
             idx = q;
         } else {
             for (int i = 0; i < CACHE_N; i++) {
-                if (C_BMP[i] != null && C_H[i] == h && C_COL[i] == gray && C_A[i] == a) {
+                if (C_BMP[i] != null && C_H[i] == key && C_COL[i] == gray && C_A[i] == a) {
                     idx = i;
                     break;
                 }
             }
         }
-        int bw = h + FLAT_PX + 2 * m, bh = h + 2 * m;
         if (idx < 0) { // 没命中：画一次进位图，占一个槽
             idx = cNext;
             cNext = (cNext + 1) % CACHE_N;
@@ -181,30 +188,25 @@ final class LineBg {
             OFF.setBitmap(bm);
             PATH.rewind();
             float rad = h / 2f;
-            PATH.addRoundRect(m, m, m + h + FLAT_PX, m + h, rad, rad, Path.Direction.CW);
+            PATH.addRoundRect(m, m, bw - m, m + h, rad, rad, Path.Direction.CW); // 平直段 = bw - 2m - h
             paintGlass(OFF, sd, a, gray);
             OFF.setBitmap(null);
             C_BMP[idx] = bm;
-            C_H[idx] = h;
+            C_H[idx] = key;
             C_COL[idx] = gray;
             C_A[idx] = a;
         }
         cLast = idx;
         Bitmap bm = C_BMP[idx];
-        int cap = m + (h + 1) / 2; // 一端：柔边 + 半圆
-        float L = l - m, T = t - m, R = r + m, B = b + m;
-        float capD = Math.min(cap, (R - L) / 2f);
-        SRC.set(0, 0, cap, bh);
-        DST.set(L, T, L + capD, B);
-        cv.drawBitmap(bm, SRC, DST, BMP);
-        SRC.set(bw - cap, 0, bw, bh);
-        DST.set(R - capD, T, R, B);
-        cv.drawBitmap(bm, SRC, DST, BMP);
-        if (R - capD > L + capD) {
-            SRC.set(bw / 2 - 1, 0, bw / 2 + 1, bh);
-            DST.set(L + capD, T, R - capD, B);
-            cv.drawBitmap(bm, SRC, DST, BMP);
-        }
+        int capD = Math.min(cap, (Ri - Li) / 2); // 底很短时两端各占一半（会被缩小）
+        float[] v = MESH;
+        v[0] = v[8] = Li;
+        v[2] = v[10] = Li + capD;
+        v[4] = v[12] = Ri - capD;
+        v[6] = v[14] = Ri;
+        v[1] = v[3] = v[5] = v[7] = Ti;
+        v[9] = v[11] = v[13] = v[15] = Bi;
+        cv.drawBitmapMesh(bm, 3, 1, v, 0, null, 0, capD < cap ? BMP : BMP_NF);
     }
 
     /** 把 PATH 画成带柔边的液态玻璃底（画进缓存位图，a = 不透明度 0～255，gray = 0xRRGGBB 底色）。 */

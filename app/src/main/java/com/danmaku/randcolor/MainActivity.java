@@ -49,7 +49,7 @@ public class MainActivity extends Activity {
 
     private EditText etPkg, etIdle, etVolStep;
     private Switch swVol;
-    private CheckBox cbVolHoriz, cbVolLock;
+    private CheckBox cbVolHoriz, cbVolLock, cbVolFollow;
     private VolSizeField volWF, volLF;
     /** 首页顶部标签行里的 13 个标签（来自 TextRec 追踪，40.7.0）；勾选 = 隐藏。 */
     private static final String[] TAB_LABELS = {"推荐", "关注", "热点", "同城", "商城", "经验", "游戏", "少儿", "精选", "团购", "免费看剧", "短剧", "直播"};
@@ -353,6 +353,11 @@ public class MainActivity extends Activity {
         cbVolLock.setTextSize(15);
         cbVolLock.setTextColor(cText);
         sVol.body.addView(cbVolLock);
+        cbVolFollow = new CheckBox(this);
+        cbVolFollow.setText("跟随显示（有视频时长或直播开播时间时才显示，其它页面藏起来）");
+        cbVolFollow.setTextSize(15);
+        cbVolFollow.setTextColor(cText);
+        sVol.body.addView(cbVolFollow);
         sVol.body.addView(sub("大步长（按一下加减多少）"));
         sVol.body.addView(note("比如填 6，按一下大步长的 ＋ 就加 6，－ 就减 6；超出音量范围就停在最大 / 最小。改完保存并应用，抖音回到前台后生效。"));
         sVol.body.addView(etVolStep);
@@ -698,6 +703,7 @@ public class MainActivity extends Activity {
         etVolStep.setText(String.valueOf(c.volStep));
         cbVolHoriz.setChecked(c.volHoriz);
         cbVolLock.setChecked(c.volLock);
+        cbVolFollow.setChecked(c.volFollow);
         volWF.set(c.volW);
         volLF.set(c.volL);
         for (int i = 0; i < TAB_LABELS.length; i++) {
@@ -746,6 +752,7 @@ public class MainActivity extends Activity {
         c.volOn = swVol.isChecked();
         c.volHoriz = cbVolHoriz.isChecked();
         c.volLock = cbVolLock.isChecked();
+        c.volFollow = cbVolFollow.isChecked();
         c.volW = volWF.v;
         c.volL = volLF.v;
         try {

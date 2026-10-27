@@ -36,6 +36,36 @@ final class DanmakuHook {
      * 不用 ThreadLocal：Compose 的文字绘制都在主线程，普通静态变量每次少一次查表。
      */
     private static boolean pendingFill;
+    /** 上一次 paint 是 Stroke 且底开着：下一次 Fill 要换上和音量块字一样的投影。 */
+    private static boolean pendingShadow;
+    private static Object shadowObj;
+    private static boolean shadowTried;
+
+    /**
+     * 和 VolPanel.Val 的字一样的投影：Shadow(color = 0xAA000000, offset = (0, 1dp), blurRadius = 2dp)，按像素。
+     * 没在抖音 40.7.0 上验证（Shadow 是 Kotlin value class 构造，按「(long, long, float) 带 / 不带 DefaultConstructorMarker」反射找）；
+     * 建不出来就一直 null，弹幕保持原样。建一次缓存。
+     */
+    private static Object shadowObj(Class<?> cls) {
+        if (shadowObj != null || shadowTried || cls == null) return shadowObj;
+        shadowTried = true;
+        try {
+            float den = android.content.res.Resources.getSystem().getDisplayMetrics().density;
+            float blur = (int) (2f * den + 0.5f), dy = (int) (den + 0.5f);
+            long color = (0xAA000000L & 0xFFFFFFFFL) << 32; // sRGB Color：ARGB 放在高 32 位，低位 0 = sRGB
+            long off = ((long) Float.floatToRawIntBits(0f) << 32) | (Float.floatToRawIntBits(dy) & 0xFFFFFFFFL);
+            for (java.lang.reflect.Constructor<?> k : cls.getDeclaredConstructors()) {
+                Class<?>[] t = k.getParameterTypes();
+                if (t.length < 3 || t.length > 4 || t[0] != long.class || t[1] != long.class || t[2] != float.class) continue;
+                if (t.length == 4 && !t[3].getName().endsWith("DefaultConstructorMarker")) continue;
+                k.setAccessible(true);
+                shadowObj = t.length == 3 ? k.newInstance(color, off, blur) : k.newInstance(color, off, blur, null);
+                break;
+            }
+        } catch (Throwable ignored) {
+        }
+        return shadowObj;
+    }
 
     /**
      * 颜色缓存（直接映射，1024 项）：键 = 弹幕对象的 identityHashCode，值 = 算好的颜色。
@@ -177,13 +207,14 @@ final class DanmakuHook {
             String name = m.getName();
             if (!name.startsWith("paint") || name.contains("$")) continue;
             Class<?>[] pt = m.getParameterTypes();
-            int colorIdx = -1, styleIdx = -1, longs = 0;
+            int colorIdx = -1, styleIdx = -1, shIdx = -1, longs = 0;
             for (int i = 0; i < pt.length; i++) {
                 if (pt[i] == long.class) {
                     longs++;
                     colorIdx = i;
                 }
                 if (pt[i].getName().endsWith("DrawStyle")) styleIdx = i;
+                if (pt[i].getName().endsWith(".Shadow")) shIdx = i;
             }
             if (longs != 1 || styleIdx < 0) continue; // 带 Brush 的那个重载没有 long 颜色，在这里被排除
             if (strict) {
@@ -192,7 +223,7 @@ final class DanmakuHook {
                 continue;
             }
             try {
-                XposedBridge.hookMethod(m, new PaintHook(colorIdx, styleIdx));
+                XposedBridge.hookMethod(m, new PaintHook(colorIdx, styleIdx, shIdx, shIdx >= 0 ? pt[shIdx] : null));
                 n++;
             } catch (Throwable ignored) {
             }
@@ -223,9 +254,14 @@ final class DanmakuHook {
     private static final class PaintHook extends XC_MethodHook {
         private final int colorIdx, styleIdx; // 颜色（long）和 DrawStyle 在参数里的位置：按类型找到的
 
-        PaintHook(int colorIdx, int styleIdx) {
+        private final int shIdx;      // Shadow 在参数里的位置（-1 = 没找到，不加投影）
+        private final Class<?> shCls;
+
+        PaintHook(int colorIdx, int styleIdx, int shIdx, Class<?> shCls) {
             this.colorIdx = colorIdx;
             this.styleIdx = styleIdx;
+            this.shIdx = shIdx;
+            this.shCls = shCls;
         }
 
         @Override
@@ -237,9 +273,18 @@ final class DanmakuHook {
                 Object[] a = p.args;
                 int kind = kindOf(a[styleIdx]);
                 if (kind == 1) { // 弹幕先画描边
-                    if (bg > 0) drawBg(p.thisObject, a[0], bg); // 文字灰色底：画在描边和字之前
+                    if (bg > 0) {
+                        drawBg(p.thisObject, a[0], bg); // 文字灰色底：画在描边和字之前
+                        pendingShadow = shIdx >= 0;
+                    }
                     if (c.enabled) pendingFill = true;
                     return;
+                }
+                boolean ps = pendingShadow;
+                pendingShadow = false;
+                if (ps && kind == 2) { // 底开着时弹幕的字（Fill 那次）加音量块字的投影
+                    Object sh = shadowObj(shCls);
+                    if (sh != null) a[shIdx] = sh;
                 }
                 if (!c.enabled) return;
                 boolean pend = pendingFill;

@@ -553,6 +553,7 @@ final class PubHook {
                     if (introCls == null) return; // 容器类还没找到：先不下结论，下次绘制再认
                     tag = introOf(t) != null ? Boolean.TRUE : Boolean.FALSE; // 不在视频信息容器里的 title（别处的标题）打 FALSE，以后一次 tag 比较就返回
                     t.setTag(NAME_TAG, tag);
+                    if (tag == Boolean.TRUE && cf.lineBg > 0) LineBg.shadow(t); // 作者名的字投影和音量块一样
                 }
                 if (tag != Boolean.TRUE) return;
                 int bg = cf.lineBg;
@@ -891,6 +892,7 @@ final class PubHook {
     /** 认出是视频文案：打 tag（cap.draw 只改打过 tag 的），挂一次布局监听（展开 / 收起让布局变了，重设样式）。 */
     private static void markCaption(TextView t) {
         t.setTag(CAP_TAG, Boolean.TRUE);
+        if (DanmakuHook.cfg.lineBg > 0) LineBg.shadow(t); // 文案的字投影和音量块一样
         if (t.getTag(CAPW_TAG) == null) {
             t.setTag(CAPW_TAG, Boolean.TRUE);
             t.addOnLayoutChangeListener(CAP_LISTENER);
@@ -1070,8 +1072,6 @@ final class PubHook {
             LineBg.Row row = new LineBg.Row(root.getContext());
             row.follow = !pub; // 时长行的显示 / 隐藏要告诉音量浮窗（跟随显示）
             t = row;
-            float d = t.getResources().getDisplayMetrics().density;
-            t.setShadowLayer(5f * d, 0f, 0f, 0xFF000000); // 黑色描边感，亮暗背景都看得清
             t.setClickable(false);
             t.setFocusable(false);
             t.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);

@@ -72,6 +72,10 @@ public final class DanmakuConfig {
     public boolean volLock = true;
     /** 音量浮窗跟随显示（默认关）：开着时，只有这个窗口里有视频时长浮层，或直播间开播时间那块文字在显示，浮窗才显示；都没有就藏起来。 */
     public boolean volFollow = false;
+    /** 音量浮窗里每一块单独的开关（默认都显示）：当前音量块、大步长一对（橙）、±1 一对（蓝）。三个都关就不加浮窗。 */
+    public boolean volShowVal = true, volShowBig = true, volShowOne = true;
+    /** 当前音量块放在加减键的哪一边：-1 = 默认（横放在左、竖放在上，和以前一样）、0 左、1 右、2 上、3 下。见 VolPanel。 */
+    public int volValPos = -1;
     /** 音量浮窗大小（dp）：宽 = 条的粗细（竖放是宽、横放是高），长 = 条沿方向的总长；设置页里每按一下 ±1。默认 40 × 222 就是原来的大小。 */
     public static final int VOL_W_MIN = 20, VOL_W_MAX = 120, VOL_L_MIN = 120, VOL_L_MAX = 800;
     public int volW = 40, volL = 222;
@@ -106,6 +110,10 @@ public final class DanmakuConfig {
             p.setProperty("volHoriz", String.valueOf(volHoriz));
             p.setProperty("volLock", String.valueOf(volLock));
             p.setProperty("volFollow", String.valueOf(volFollow));
+            p.setProperty("volShowVal", String.valueOf(volShowVal));
+            p.setProperty("volShowBig", String.valueOf(volShowBig));
+            p.setProperty("volShowOne", String.valueOf(volShowOne));
+            p.setProperty("volValPos", String.valueOf(volValPos));
             p.setProperty("volW", String.valueOf(volW));
             p.setProperty("volL", String.valueOf(volL));
             p.setProperty("liveTime", String.valueOf(liveTime));
@@ -251,6 +259,10 @@ public final class DanmakuConfig {
         c.volHoriz = Boolean.parseBoolean(p.getProperty("volHoriz", "false").trim());
         c.volLock = Boolean.parseBoolean(p.getProperty("volLock", "true").trim());
         c.volFollow = Boolean.parseBoolean(p.getProperty("volFollow", "false").trim());
+        c.volShowVal = Boolean.parseBoolean(p.getProperty("volShowVal", "true").trim());
+        c.volShowBig = Boolean.parseBoolean(p.getProperty("volShowBig", "true").trim());
+        c.volShowOne = Boolean.parseBoolean(p.getProperty("volShowOne", "true").trim());
+        c.volValPos = Math.max(-1, Math.min(3, parseIntOr(p.getProperty("volValPos", "-1"), -1)));
         c.volW = Math.max(VOL_W_MIN, Math.min(VOL_W_MAX, parseIntOr(p.getProperty("volW", "40"), 40)));
         c.volL = Math.max(VOL_L_MIN, Math.min(VOL_L_MAX, parseIntOr(p.getProperty("volL", "222"), 222)));
         c.vidAdjust = Boolean.parseBoolean(p.getProperty("vidAdjust", "false").trim());

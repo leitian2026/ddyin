@@ -1030,7 +1030,7 @@ final class PubHook {
                 }
                 if (v == root) x = cx;
             }
-            x -= LineBg.pad(root.getContext());
+            x -= LineBg.padX(root.getContext());
         }
         if (ok == r.slotOk && (!ok || (x == r.slotX && y == r.slotY))) return; // 没变
         r.slotOk = ok;

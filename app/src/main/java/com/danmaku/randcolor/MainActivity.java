@@ -70,6 +70,7 @@ public class MainActivity extends Activity {
     private ColorField liveColorF;
     private int liveX = 3, liveY = 10;
     private PctField bgF, liftF, shF;
+    private HalfDpField shRF, shDyF;
     private ColorField bgColorF;
     private BlankField blankF;
     private Switch swBar;
@@ -214,13 +215,19 @@ public class MainActivity extends Activity {
         bgF = new PctField(100);
         liftF = new PctField(30);
         shF = new PctField(65);
+        shRF = new HalfDpField(1, 10, 4);
+        shDyF = new HalfDpField(0, 10, 2);
         bgColorF = new ColorField("默认（近黑）", "选择底色");
         Section sBg = new Section("文字底条", false, null, () -> (bgF.v == 0 ? "已关闭" : "不透明度 " + bgF.v + "%") + " · 字最低亮度 " + liftF.v + "%");
         sBg.body.addView(note("给视频文案、视频时长、发布日期地点、弹幕、直播间数据的每一行字加一条半透明底（颜色在下面的「底色」里选，默认近黑），底比字大一个字号（四周各多 1 sp）。0% = 不加。文案的底在文案控件边界处可能被裁掉一点。"));
         sBg.body.addView(settingRow("不透明度", bgF.build()));
         sBg.body.addView(rowLine());
         sBg.body.addView(settingRow("字的投影不透明度", shF.build()));
-        sBg.body.addView(note("底条上面的字的黑色投影（半径 2dp、下移 1dp），和音量块的字一样；65% 约等于音量块的投影，0% = 不加投影。"));
+        sBg.body.addView(rowLine());
+        sBg.body.addView(settingRow("投影模糊半径", shRF.build()));
+        sBg.body.addView(rowLine());
+        sBg.body.addView(settingRow("投影下移", shDyF.build()));
+        sBg.body.addView(note("底条上面的字的黑色投影。默认半径 2 dp、下移 1 dp、65%，和音量块的字差不多；0% = 不加投影。半径小投影更紧、字边更利落，半径大更散更淡；每档 0.5 dp。"));
         sBg.body.addView(rowLine());
         sBg.body.addView(bgColorF.row("底色"));
         sBg.body.addView(rowLine());
@@ -764,6 +771,8 @@ public class MainActivity extends Activity {
         updateLivePos();
         bgF.set(c.lineBg);
         shF.set(c.lineShadow);
+        shRF.set(c.lineShadowR);
+        shDyF.set(c.lineShadowDy);
         bgColorF.set(c.lineBgColor);
         liftF.set(c.textLift);
         pubX = c.pubX;
@@ -815,6 +824,8 @@ public class MainActivity extends Activity {
         c.liveColor = liveColorF.color;
         c.lineBg = bgF.v;
         c.lineShadow = shF.v;
+        c.lineShadowR = shRF.v;
+        c.lineShadowDy = shDyF.v;
         c.lineBgColor = bgColorF.color;
         c.textLift = liftF.v;
         c.pubX = pubX; // 位置只在抖音里用浮窗调，这里原样带着
@@ -1044,6 +1055,49 @@ public class MainActivity extends Activity {
 
         void show() {
             if (label != null) label.setText(v + " dp");
+        }
+    }
+
+    /** 0.5 dp 一档的数值行：「−  1.5 dp  +」，v 存的是 0.5dp 的个数。 */
+    private final class HalfDpField {
+        final int min, max;
+        int v;
+        TextView label;
+
+        HalfDpField(int min, int max, int def) {
+            this.min = min;
+            this.max = max;
+            v = def;
+        }
+
+        View build() {
+            LinearLayout r = new LinearLayout(MainActivity.this);
+            r.setOrientation(LinearLayout.HORIZONTAL);
+            r.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+            TextView minus = pillButton("−", false);
+            minus.setTextSize(20);
+            minus.setOnClickListener(x -> set(v - 1));
+            r.addView(minus, new LinearLayout.LayoutParams(dp(44), dp(40)));
+            label = tv("", 15, cText, true);
+            label.setGravity(Gravity.CENTER);
+            label.setMinWidth(dp(72));
+            r.addView(label, new LinearLayout.LayoutParams(-2, -2));
+            TextView plus = pillButton("+", false);
+            plus.setTextSize(20);
+            plus.setOnClickListener(x -> set(v + 1));
+            r.addView(plus, new LinearLayout.LayoutParams(dp(44), dp(40)));
+            show();
+            return r;
+        }
+
+        void set(int n) {
+            v = Math.max(min, Math.min(max, n));
+            show();
+            refreshSummaries();
+        }
+
+        void show() {
+            if (label != null) label.setText((v / 2) + (v % 2 == 0 ? "" : ".5") + " dp");
         }
     }
 

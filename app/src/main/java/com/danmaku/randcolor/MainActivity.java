@@ -49,7 +49,7 @@ public class MainActivity extends Activity {
 
     private EditText etPkg, etIdle, etVolStep;
     private Switch swVol;
-    private CheckBox cbVolHoriz;
+    private CheckBox cbVolHoriz, cbVolLock;
     private VolSizeField volWF, volLF;
     /** 首页顶部标签行里的 13 个标签（来自 TextRec 追踪，40.7.0）；勾选 = 隐藏。 */
     private static final String[] TAB_LABELS = {"推荐", "关注", "热点", "同城", "商城", "经验", "游戏", "少儿", "精选", "团购", "免费看剧", "短剧", "直播"};
@@ -339,15 +339,20 @@ public class MainActivity extends Activity {
         etVolStep.setInputType(InputType.TYPE_CLASS_NUMBER);
         etVolStep.setHint("1～100，默认 6");
         watch(etVolStep);
-        Section sVol = new Section("音量竖条浮窗", false, swVol,
+        Section sVol = new Section("音量条浮窗", false, swVol,
                 () -> swVol.isChecked() ? "已开启 · " + (cbVolHoriz.isChecked() ? "横放" : "竖放") + " · 大步长 " + etVolStep.getText().toString().trim() + " · 宽 " + volWF.v + " × 长 " + volLF.v + " dp" : "已关闭");
-        sVol.body.addView(note("在抖音页面上盖一组按键（没有底板），直接调系统媒体音量，按住最前面的当前音量拖动可以挪位置（位置在抖音里拖，这里不用调）。当前音量块会按音量比例填充绿色电平；后面是两组连体的加减键：橙色是大步长，蓝色是 ±1（固定）。竖放时每组上 ＋ 下 －，横放时每组左 － 右 ＋。"));
+        sVol.body.addView(note("在抖音页面上盖一组按键（没有底板），直接调系统媒体音量，默认固定位置；想挪位置，先关掉下面的「固定位置」，再在抖音里按住最前面的当前音量拖动（位置在抖音里拖，这里不用调）。当前音量块会按音量比例填充绿色电平；后面是两组连体的加减键：橙色是大步长，蓝色是 ±1（固定）。竖放时每组上 ＋ 下 －，横放时每组左 － 右 ＋。"));
         cbVolHoriz = new CheckBox(this);
         cbVolHoriz.setText("横放");
         cbVolHoriz.setTextSize(15);
         cbVolHoriz.setTextColor(cText);
         cbVolHoriz.setOnCheckedChangeListener((b, on) -> refreshSummaries());
         sVol.body.addView(cbVolHoriz);
+        cbVolLock = new CheckBox(this);
+        cbVolLock.setText("固定位置（打开后不能拖动）");
+        cbVolLock.setTextSize(15);
+        cbVolLock.setTextColor(cText);
+        sVol.body.addView(cbVolLock);
         sVol.body.addView(sub("大步长（按一下加减多少）"));
         sVol.body.addView(note("比如填 6，按一下大步长的 ＋ 就加 6，－ 就减 6；超出音量范围就停在最大 / 最小。改完保存并应用，抖音回到前台后生效。"));
         sVol.body.addView(etVolStep);
@@ -692,6 +697,7 @@ public class MainActivity extends Activity {
         swVol.setChecked(c.volOn);
         etVolStep.setText(String.valueOf(c.volStep));
         cbVolHoriz.setChecked(c.volHoriz);
+        cbVolLock.setChecked(c.volLock);
         volWF.set(c.volW);
         volLF.set(c.volL);
         for (int i = 0; i < TAB_LABELS.length; i++) {
@@ -739,6 +745,7 @@ public class MainActivity extends Activity {
         c.lpBtn = swLp.isChecked();
         c.volOn = swVol.isChecked();
         c.volHoriz = cbVolHoriz.isChecked();
+        c.volLock = cbVolLock.isChecked();
         c.volW = volWF.v;
         c.volL = volLF.v;
         try {

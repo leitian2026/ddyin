@@ -54,10 +54,20 @@ final class LineBg {
     /** 底左右两端再各加长的像素（物理像素，不随字号变）。 */
     private static final float END_PX = 13f;
 
-    /** 底上面的字的投影：和 VolPanel.Val「当前音量」的字一样（半径 2dp、下移 1dp、0xAA 黑）。 */
+    private static final int SH_TAG = 0x7e0b0c05;
+
+    /**
+     * 底上面的字的投影：形状和 VolPanel.Val「当前音量」的字一样（半径 2dp、下移 1dp、黑色），不透明度按设置页的 lineShadow（%）；0 = 不加。
+     * 每个控件只在不透明度变了才重设（tag 记着上次的值），画的路径里调用没有额外开销。
+     */
     static void shadow(TextView t) {
+        int pct = DanmakuHook.cfg.lineShadow;
+        Object tag = t.getTag(SH_TAG);
+        if (tag instanceof Integer && (Integer) tag == pct) return;
+        t.setTag(SH_TAG, pct);
         float den = t.getResources().getDisplayMetrics().density;
-        t.setShadowLayer((int) (2f * den + 0.5f), 0f, (int) (den + 0.5f), 0xAA000000);
+        if (pct <= 0) t.setShadowLayer(0f, 0f, 0f, 0);
+        else t.setShadowLayer((int) (2f * den + 0.5f), 0f, (int) (den + 0.5f), Math.round(255f * pct / 100f) << 24);
     }
 
     /** 自己放的两行的内边距：3sp，给底和它的描边留地方（底只比字多 1sp）。PubHook 用它抵消行距 / 左边距。 */
@@ -153,6 +163,7 @@ final class LineBg {
         @Override
         protected void onDraw(Canvas canvas) {
             try {
+                shadow(this); // 设置页改了投影不透明度，下次绘制跟着变
                 drawBars(canvas, this, DanmakuHook.cfg.lineBg);
             } catch (Throwable ignored) {
             }

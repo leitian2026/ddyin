@@ -16,8 +16,8 @@ import android.widget.TextView;
 
 /**
  * 文字液态玻璃底（1.25.0 起是灰色底，1.42.9 起改成液态玻璃）：视频文案、视频时长、发布日期地点（1.29.0 起还有弹幕、直播间开播时间），每一行字后面画一条半透明的玻璃底（类名里的「灰色」是旧叫法），透明度 lineBg（0～100%）在设置页调，0 = 不画。
- * 玻璃的画法（都是 Canvas 画的，没有真正的背景模糊）：半透明的底色（用户选的底色，默认偏白的中浅灰）→ 整块一层竖向的白色高光渐变（上亮、中间透、底部再微亮）→ 整块一层淡白的磨砂；沿边缘一圈由外向内渐淡的内发光（模拟边缘折射光）；左上偏青、右下偏暖的色散细边；再叠顶部一道较亮的边、底部一道暗一点的边（都是把底的形状错开一点再用 clip 抠出来的月牙形，两端自然变细）。外面那圈柔边照旧。高光 / 亮边的强度都跟 lineBg 走，lineBg = 0 什么都不画。
- * 底 = 这一行的文字框向四周各放大 1sp（宽、高都比字大一个字号档），左右两端再各加长 13px（1.42.5 加 2px，1.42.6 起 8px，1.42.7 起 10px，1.42.8 起 13px），两端是半圆（圆角半径 = 底高的一半）；多行时每行一条（1.42.12 起不再合成并集，行与行重叠的一小条会稍深）；玻璃画一次缓存成位图，见 drawPill。
+ * 玻璃的画法（都是 Canvas 画的，没有真正的背景模糊）：半透明的底色（用户选的底色，默认偏白的中浅灰）→ 整块一层竖向的白色高光渐变（上亮、中间透、底部再微亮）→ 整块一层淡白的磨砂；沿边缘一圈由外向内渐淡的内发光（模拟边缘折射光）；左上偏青、右下偏暖的色散细边；再叠一道很淡的顶部高光（都是把底的形状错开一点再用 clip 抠出来的月牙形，两端自然变细）。外面那圈柔边照旧。高光 / 亮边的强度都跟 lineBg 走，lineBg = 0 什么都不画。
+ * 底 = 这一行的文字框向四周各放大 1sp（宽、高都比字大一个字号档），左右两端再各加长 13px（1.42.5 加 2px，1.42.6 起 8px，1.42.7 起 10px，1.42.8 起 13px），两端是半圆（圆角半径 = 底高的一半）；多行时每行一粒独立的胶囊（1.42.12 起不再合成并集；1.42.13 起行与行之间留 0.5sp 的缝，不再重叠）；玻璃画一次缓存成位图，见 drawPill。
  *
  * 画在文字之前：自己的两行（发布信息、时长）用 {@link Row}（TextView 子类，onDraw 先画底再 super）；
  * 抖音的文案控件在 PubHook.DrawHook（MentionTextView#onDraw 之前）里调 {@link #drawBars}；
@@ -34,7 +34,7 @@ final class LineBg {
 
     /** 玻璃高光（竖向，单位渐变：0 = 底的上沿，1 = 下沿，画之前用 MAT 缩放 / 平移到底的包围盒）。颜色里的透明度是相对值，实际强度 = 它 × lineBg。 */
     private static final LinearGradient SHEEN = new LinearGradient(0f, 0f, 0f, 1f,
-            new int[]{0x99FFFFFF, 0x2CFFFFFF, 0x00FFFFFF, 0x3CFFFFFF}, new float[]{0f, 0.42f, 0.58f, 1f}, Shader.TileMode.CLAMP);
+            new int[]{0x66FFFFFF, 0x3CFFFFFF, 0x24FFFFFF, 0x30FFFFFF}, new float[]{0f, 0.45f, 0.8f, 1f}, Shader.TileMode.CLAMP);
     private static final Matrix MAT = new Matrix();
     /**
      * 省电（1.42.12）：玻璃（约 12 次 clip + 渐变）只在缓存没命中时画一次到一张小位图里，之后每个底只是 3 次 drawBitmap（左端、右端、中间拉伸）。
@@ -51,10 +51,10 @@ final class LineBg {
     /** 位图里底中间那一段不随长度变的平直部分（px），左右端半圆各占 h/2。 */
     private static final int FLAT_PX = 8;
     private static final RectF BOX = new RectF();
-    /** 顶部亮边、底部亮边的厚度（sp，最厚处；两端变细）。 */
-    private static final float RIM_TOP_SP = 1.2f, RIM_BOT_SP = 0.8f;
+    /** 顶部高光的厚度（sp，最厚处；两端变细）。 */
+    private static final float RIM_TOP_SP = 1.6f;
     /** 边缘内发光（模拟玻璃边缘的折射光）：由外向内两层，厚度（sp）和强度（相对 lineBg 的比例）；上、下、左、右四个方向各抠一道月牙，合起来是一圈越往里越淡的亮带。 */
-    private static final float GLOW1_SP = 0.8f, GLOW2_SP = 2.6f;
+    private static final float GLOW1_SP = 0.7f, GLOW2_SP = 1.8f, GLOW3_SP = 3.6f;
     /** 色散：左上沿偏青、右下沿偏暖（相对 lineBg 的透明度 / 255），厚度 DISP_SP。 */
     private static final float DISP_SP = 1.4f;
 
@@ -92,7 +92,7 @@ final class LineBg {
         return pad(c) + Math.round(END_PX);
     }
 
-    /** 在 cv 上给 t 的每一行文字画底（每一行一条玻璃，行与行之间重叠的那一小条会稍深）。t 还没排好版（没有 Layout）或 pct <= 0 就什么都不画。 */
+    /** 在 cv 上给 t 的每一行文字画底（每一行一粒胶囊玻璃，行与行之间留 0.5sp 的缝）。t 还没排好版（没有 Layout）或 pct <= 0 就什么都不画。 */
     static void drawBars(Canvas cv, TextView t, int pct) {
         if (pct <= 0 || cv == null) return;
         Layout l = t.getLayout();
@@ -105,7 +105,11 @@ final class LineBg {
         for (int i = 0; i < n; i++) {
             float lf = l.getLineLeft(i), rt = l.getLineRight(i);
             if (rt <= lf) continue; // 空行不画
-            drawPill(cv, ox + lf - pad - END_PX, oy + l.getLineTop(i) - pad, ox + rt + pad + END_PX, oy + l.getLineBottom(i) + pad, sd, pct);
+            float top = l.getLineTop(i), bot = l.getLineBottom(i), padT = pad, padB = pad;
+            // 多行：和上 / 下一行之间留 0.5sp 的缝，每行是各自独立的一粒胶囊，不叠在一起（单行或没有相邻行时上下仍多 1sp）
+            if (i > 0) padT = Math.min(pad, (top - l.getLineBottom(i - 1)) / 2f - 0.5f * sd);
+            if (i < n - 1) padB = Math.min(pad, (l.getLineTop(i + 1) - bot) / 2f - 0.5f * sd);
+            drawPill(cv, ox + lf - pad - END_PX, oy + top - padT, ox + rt + pad + END_PX, oy + bot + padB, sd, pct);
         }
     }
 
@@ -176,11 +180,11 @@ final class LineBg {
         }
         cv.restore();
         PAINT.setStyle(Paint.Style.FILL);
-        // 玻璃本体：底色只用 65% 的不透明度，让后面的画面透一点出来
-        PAINT.setColor(gray | (a * 13 / 20) << 24);
+        // 玻璃本体：底色只用 60% 的不透明度，让后面的画面透一点出来
+        PAINT.setColor(gray | (a * 3 / 5) << 24);
         cv.drawPath(PATH, PAINT);
         // 磨砂感：整块再盖一层很淡的白，压低后面画面的对比度（没有真正的背景模糊，这是视觉上的近似）
-        PAINT.setColor(0xFFFFFF | (a * 12 / 100) << 24);
+        PAINT.setColor(0xFFFFFF | (a * 18 / 100) << 24);
         cv.drawPath(PATH, PAINT);
         // 高光：竖向白色渐变，铺满整块底（多行时是一整块，和底一样按并集画）；Paint 的透明度乘在渐变上
         PATH.computeBounds(BOX, false);
@@ -192,9 +196,13 @@ final class LineBg {
         PAINT.setShader(SHEEN);
         cv.drawPath(PATH, PAINT);
         PAINT.setShader(null);
-        // 边缘内发光：越靠边越亮、往里变淡，中间留给文字（先画宽的淡层，再画窄的亮层）
-        float g2 = GLOW2_SP * sd, g1 = GLOW1_SP * sd;
-        int w2 = 0xFFFFFF | (a * 18 / 100) << 24, w1 = 0xFFFFFF | (a * 45 / 100) << 24;
+        // 边缘内发光：三层由外向内渐淡（0.7 / 1.8 / 3.6sp），四个方向各抠一道月牙，合起来是一圈柔和的亮带，不是一条硬线，中间留给文字
+        float g3 = GLOW3_SP * sd, g2 = GLOW2_SP * sd, g1 = GLOW1_SP * sd;
+        int w3 = 0xFFFFFF | (a * 8 / 100) << 24, w2 = 0xFFFFFF | (a * 14 / 100) << 24, w1 = 0xFFFFFF | (a * 28 / 100) << 24;
+        rim(cv, 0f, g3, w3);
+        rim(cv, 0f, -g3, w3);
+        rim(cv, g3, 0f, w3);
+        rim(cv, -g3, 0f, w3);
         rim(cv, 0f, g2, w2);
         rim(cv, 0f, -g2, w2);
         rim(cv, g2, 0f, w2);
@@ -205,12 +213,10 @@ final class LineBg {
         rim(cv, -g1, 0f, w1);
         // 色散：左上沿一道偏青、右下沿一道偏暖的细边，像玻璃边缘把背景拉开了颜色
         float dd = DISP_SP * sd;
-        rim(cv, dd, dd, 0x80E0FF | (a * 30 / 100) << 24);
-        rim(cv, -dd, -dd, 0xFFB070 | (a * 30 / 100) << 24);
-        // 顶部亮边：底的形状里，减去「往下错开一点的同一形状」，剩下顶部一道月牙，两端变细
-        rim(cv, 0f, RIM_TOP_SP * sd, 0xFFFFFF | a << 24);
-        // 底部亮边：同理，往上错开，暗一些
-        rim(cv, 0f, -RIM_BOT_SP * sd, 0xFFFFFF | (a * 6 / 10) << 24);
+        rim(cv, dd, dd, 0x80E0FF | (a * 22 / 100) << 24);
+        rim(cv, -dd, -dd, 0xFFB070 | (a * 22 / 100) << 24);
+        // 顶部高光：比四周的发光稍亮一点点，只是让上沿有受光的感觉，不再是一条白线
+        rim(cv, 0f, RIM_TOP_SP * sd, 0xFFFFFF | (a * 22 / 100) << 24);
     }
 
     /** 在 PATH 里面画一道亮边：把 PATH 错开 (dx, dy) 再抠掉，剩下的是错开方向反侧的一道月牙（dy > 0 是上沿、dy < 0 是下沿、dx > 0 是左沿、dx < 0 是右沿）；argb 是这道亮边的颜色（含透明度）。PATH 画完会移回原位。 */

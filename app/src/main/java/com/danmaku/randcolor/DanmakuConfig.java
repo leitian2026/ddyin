@@ -46,7 +46,7 @@ public final class DanmakuConfig {
     public boolean liveAdjust = false;
     /** 视频文案 / 视频时长 / 发布日期地点每一行字后面的灰色底的不透明度（0～100，%）；0 = 不画。见 LineBg。 */
     public int lineBg = 70;
-    /** 灰色底的颜色（0xAARRGGBB，不透明）；0 = 默认（近黑 #101010）。不透明度仍由 lineBg 管。见 LineBg。 */
+    /** 文字底条的填充颜色（0xAARRGGBB，不透明）；0 = 默认（白色，和音量块的底一样；1.42.17 前是近黑 #101010）。不透明度仍由 lineBg 管，描边始终白色。见 LineBg。 */
     public int lineBgColor = 0;
     /** 模块自己决定颜色的字（弹幕随机色）的最低亮度（0～100，%，每档 5）：比这暗的颜色往白色提亮；0 = 不提亮。见 LineBg.legible。 */
     public int textLift = 30;

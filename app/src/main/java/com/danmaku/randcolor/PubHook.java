@@ -1067,7 +1067,9 @@ final class PubHook {
         if (t != null && t.getParent() == root) return t;
         detach(t);
         if (t == null) {
-            t = new LineBg.Row(root.getContext());
+            LineBg.Row row = new LineBg.Row(root.getContext());
+            row.follow = !pub; // 时长行的显示 / 隐藏要告诉音量浮窗（跟随显示）
+            t = row;
             float d = t.getResources().getDisplayMetrics().density;
             t.setShadowLayer(5f * d, 0f, 0f, 0xFF000000); // 黑色描边感，亮暗背景都看得清
             t.setClickable(false);

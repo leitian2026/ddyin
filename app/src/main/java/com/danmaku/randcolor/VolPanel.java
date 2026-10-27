@@ -35,6 +35,9 @@ import android.widget.TextView;
  * 竖放从上到下 / 横放从左到右：当前音量（拖这里挪浮窗；数字 + 按音量比例填充的电平）、
  * 大步长一组（橙色，竖放上 ＋ 下 －，横放左 － 右 ＋，两键之间只隔 1 dp，外轮廓连在一起）、
  * ±1 一组（蓝色，同样的连体样式）。同一组加减一眼能看出是一对，两组靠颜色和间隔分开。
+ * 显示哪几块（1.42.16）：当前音量、大步长一对、±1 一对各有一个开关（volShowVal / volShowBig / volShowOne，默认都开，关掉的块不占位、浮窗变短，三块都关就不加浮窗）；
+ * 当前音量块放在加减键的左 / 右 / 上 / 下（volValPos，默认 = 横放在左、竖放在上，和以前一样）：和加减键同一条线上就排成一排，
+ * 否则当前音量单独成一条（厚度 = 设置页的「宽」）放在加减键那一排的上 / 下 / 左 / 右。当前音量块关掉后没法在抖音里拖动浮窗（拖动只认它）。
  * 大步长在设置页自定义（volStep，1～100）；普通那一对固定 ±1；横放 / 竖放在设置页选（volHoriz）。
  *
  * 跟随显示（volFollow，默认关）：开着时只有这个窗口里有视频时长行（LineBg.Row.follow，显示 / 隐藏 / 挂上 / 摘下由 View 自己的回调告诉这里）
@@ -65,7 +68,8 @@ final class VolPanel {
         if (!(top instanceof FrameLayout)) return;
         FrameLayout decor = (FrameLayout) top;
         View old = decor.findViewWithTag(TAG);
-        if (!DanmakuHook.cfg.volOn) {
+        DanmakuConfig cf = DanmakuHook.cfg;
+        if (!cf.volOn || !(cf.volShowVal || cf.volShowBig || cf.volShowOne)) { // 没开，或三块都关了：不要浮窗
             if (old != null && old.getParent() instanceof ViewGroup) ((ViewGroup) old.getParent()).removeView(old);
             BARS.remove(decor);
             return;
@@ -73,13 +77,13 @@ final class VolPanel {
         if (old instanceof Bar) {
             Bar ob = (Bar) old;
             if (ob.step == Math.max(1, Math.min(100, DanmakuHook.cfg.volStep)) && ob.horiz == DanmakuHook.cfg.volHoriz
-                    && ob.wDp == DanmakuHook.cfg.volW && ob.lDp == DanmakuHook.cfg.volL) {
+                    && ob.wDp == DanmakuHook.cfg.volW && ob.lDp == DanmakuHook.cfg.volL && ob.sameBlocks()) {
                 ((Bar) old).placeAndRefresh();
                 BARS.put(decor, new WeakReference<>(ob));
                 applyFollow(decor, ob);
                 return;
             }
-            decor.removeView(old); // 设置页改了步长 / 方向 / 大小：重建
+            decor.removeView(old); // 设置页改了步长 / 方向 / 大小 / 显示哪几块 / 当前音量放哪边：重建
         }
         Bar bar = new Bar(decor.getContext());
         decor.addView(bar, new FrameLayout.LayoutParams(bar.barW(), bar.barH(), Gravity.TOP | Gravity.START));
@@ -159,9 +163,12 @@ final class VolPanel {
 
     private static final class Bar extends LinearLayout {
         private final AudioManager am;
-        private final Val tvVal;
+        private final Val tvVal; // 当前音量块；「当前音量」开关关着时为 null
         private final int step, max;
         private final boolean horiz;
+        private final boolean showVal, showBig, showOne;
+        private final int valPos; // 0 左 1 右 2 上 3 下（默认已按横放 / 竖放换算好）
+        private final int pxW, pxH; // 整块浮窗的大小（px）
         private final int wDp, lDp; // 建的时候的宽 / 长（dp），设置页改了就重建
         private float downRawX, downRawY;
         private int startL, startT;
@@ -189,25 +196,91 @@ final class VolPanel {
             wDp = Math.max(DanmakuConfig.VOL_W_MIN, Math.min(DanmakuConfig.VOL_W_MAX, DanmakuHook.cfg.volW));
             lDp = Math.max(DanmakuConfig.VOL_L_MIN, Math.min(DanmakuConfig.VOL_L_MAX, DanmakuHook.cfg.volL));
             setTag(TAG);
-            setOrientation(horiz ? HORIZONTAL : VERTICAL);
-            // 没有底板、自己也不吃触摸：只有各个键和读数吃，键之间的空隙还是抖音页面的
+            DanmakuConfig cf = DanmakuHook.cfg;
+            showVal = cf.volShowVal;
+            showBig = cf.volShowBig;
+            showOne = cf.volShowOne;
+            valPos = cf.volValPos >= 0 && cf.volValPos <= 3 ? cf.volValPos : (horiz ? 0 : 2); // 默认：横放在左、竖放在上（和以前一样）
+            boolean pairs = showBig || showOne;
+            boolean rootHoriz = valPos <= 1;
+            // 当前音量块和加减键排在同一条线上（和加减键同方向，或者只剩一边）：一排到底；否则当前音量块单独一条，放在加减键的那一边
+            boolean flat = !showVal || !pairs || rootHoriz == horiz;
+            // 沿加减键方向的各段按比例分配总长：每块的长度 = 设置页的「长」/ 222 × 它的比例，关掉的块不占位
+            float k = lDp / 222f;
+            float keysW = (showBig ? PAIR_W : 0f) + (showOne ? PAIR_W : 0f) + (showBig && showOne ? SEP_W : 0f);
 
-            tvVal = new Val(ctx, horiz);
-            tvVal.setOnTouchListener(new OnTouchListener() {
-                @Override
-                public boolean onTouch(View v, MotionEvent e) {
-                    try {
-                        return drag(e);
-                    } catch (Throwable t) {
-                        return true;
+            tvVal = showVal ? new Val(ctx, horiz) : null;
+            if (tvVal != null) {
+                tvVal.setOnTouchListener(new OnTouchListener() {
+                    @Override
+                    public boolean onTouch(View v, MotionEvent e) {
+                        try {
+                            return drag(e);
+                        } catch (Throwable t) {
+                            return true;
+                        }
                     }
+                });
+            }
+            if (flat) {
+                setOrientation(horiz ? HORIZONTAL : VERTICAL);
+                boolean valFirst = valPos == 0 || valPos == 2;
+                boolean needSep = false;
+                if (tvVal != null && valFirst) {
+                    addView(tvVal, lp(VAL_W));
+                    needSep = true;
                 }
-            });
-            addView(tvVal, lp(VAL_W));
-            addView(spacer(ctx, SEP_W));
-            addView(pair(ctx, step, true));
-            addView(spacer(ctx, SEP_W));
-            addView(pair(ctx, 1, false));
+                if (showBig) {
+                    if (needSep) addView(spacer(ctx, SEP_W));
+                    addView(pair(ctx, step, true));
+                    needSep = true;
+                }
+                if (showOne) {
+                    if (needSep) addView(spacer(ctx, SEP_W));
+                    addView(pair(ctx, 1, false));
+                    needSep = true;
+                }
+                if (tvVal != null && !valFirst) {
+                    if (needSep) addView(spacer(ctx, SEP_W));
+                    addView(tvVal, lp(VAL_W));
+                }
+                float total = (tvVal != null ? VAL_W : 0f) + keysW + (tvVal != null && pairs ? SEP_W : 0f);
+                int len = dp(ctx, Math.round(k * total)), thick = dp(ctx, wDp);
+                pxW = horiz ? len : thick;
+                pxH = horiz ? thick : len;
+            } else {
+                // 当前音量块单独一条（宽 / 高 = 浮窗的「宽」，另一向撑满），加减键放成另一条，中间隔 gap
+                setOrientation(rootHoriz ? HORIZONTAL : VERTICAL);
+                LinearLayout keys = new LinearLayout(ctx);
+                keys.setOrientation(horiz ? HORIZONTAL : VERTICAL);
+                if (showBig) keys.addView(pair(ctx, step, true));
+                if (showBig && showOne) keys.addView(spacer(ctx, SEP_W));
+                if (showOne) keys.addView(pair(ctx, 1, false));
+                int thickPx = dp(ctx, wDp), gapDp = Math.max(1, Math.round(k * SEP_W)), gapPx = dp(ctx, gapDp);
+                LayoutParams side = rootHoriz ? new LayoutParams(thickPx, -1) : new LayoutParams(-1, thickPx);
+                LayoutParams keysLp = rootHoriz ? new LayoutParams(thickPx, -1) : new LayoutParams(-1, thickPx);
+                View gapV = new View(ctx);
+                gapV.setLayoutParams(rootHoriz ? new LayoutParams(gapPx, -1) : new LayoutParams(-1, gapPx));
+                if (valPos == 0 || valPos == 2) {
+                    addView(tvVal, side);
+                    addView(gapV);
+                    addView(keys, keysLp);
+                } else {
+                    addView(keys, keysLp);
+                    addView(gapV);
+                    addView(tvVal, side);
+                }
+                int len = dp(ctx, Math.round(k * keysW)), thick = 2 * thickPx + gapPx;
+                pxW = rootHoriz ? thick : len;
+                pxH = rootHoriz ? len : thick;
+            }
+        }
+
+        /** 设置页里「显示哪几块 / 当前音量放哪边」和建的时候一样吗（不一样就重建）。 */
+        boolean sameBlocks() {
+            DanmakuConfig c = DanmakuHook.cfg;
+            int vp = c.volValPos >= 0 && c.volValPos <= 3 ? c.volValPos : (horiz ? 0 : 2);
+            return showVal == c.volShowVal && showBig == c.volShowBig && showOne == c.volShowOne && valPos == vp;
         }
 
         /** 沿条方向按权重 weight 分、另一方向撑满的布局参数。 */
@@ -304,7 +377,7 @@ final class VolPanel {
             int v = am.getStreamVolume(AudioManager.STREAM_MUSIC);
             if (v == shown) return;
             shown = v;
-            tvVal.set(v, max);
+            if (tvVal != null) tvVal.set(v, max);
         }
 
         /** 按配置里的位置（dp，左 / 上；-1 = 默认：靠右、偏上）摆好，并保证整块在窗口里。 */
@@ -322,11 +395,11 @@ final class VolPanel {
         }
 
         private int barW() {
-            return dp(getContext(), horiz ? lDp : wDp);
+            return pxW;
         }
 
         private int barH() {
-            return dp(getContext(), horiz ? wDp : lDp);
+            return pxH;
         }
 
         private void applyMargins(int l, int t, int pw, int ph) {

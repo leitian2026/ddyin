@@ -214,7 +214,7 @@ public class MainActivity extends Activity {
         bgF = new PctField(70);
         liftF = new PctField(30);
         bgColorF = new ColorField("默认（近黑）", "选择底色");
-        Section sBg = new Section("文字液态玻璃底", false, null, () -> (bgF.v == 0 ? "已关闭" : "不透明度 " + bgF.v + "%") + " · 字最低亮度 " + liftF.v + "%");
+        Section sBg = new Section("文字底条", false, null, () -> (bgF.v == 0 ? "已关闭" : "不透明度 " + bgF.v + "%") + " · 字最低亮度 " + liftF.v + "%");
         sBg.body.addView(note("给视频文案、视频时长、发布日期地点、弹幕、直播间数据的每一行字加一条半透明底（颜色在下面的「底色」里选，默认近黑），底比字大一个字号（四周各多 1 sp）。0% = 不加。文案的底在文案控件边界处可能被裁掉一点。"));
         sBg.body.addView(settingRow("不透明度", bgF.build()));
         sBg.body.addView(rowLine());
@@ -237,9 +237,9 @@ public class MainActivity extends Activity {
 
         nameColorF = new ColorField("不改（抖音原来的颜色）", "选择作者名颜色");
         Section sName = new Section("视频作者名", false, null,
-                () -> "颜色 " + (nameColorF.color == 0 ? "不改" : "自定义") + " · 液态玻璃底 " + (bgF.v == 0 ? "关" : bgF.v + "%"));
+                () -> "颜色 " + (nameColorF.color == 0 ? "不改" : "自定义") + " · 底条 " + (bgF.v == 0 ? "关" : bgF.v + "%"));
         sName.body.addView(nameColorF.row("作者名颜色"));
-        TextView nameNote = note("视频左下角的作者名（@xxx）。液态玻璃底和上面「文字液态玻璃底」共用不透明度和底色，不透明度 0% 就不加；改回「不改」马上恢复。颜色可以选色表，也可以输入 6 位自定义色值。");
+        TextView nameNote = note("视频左下角的作者名（@xxx）。底条和上面「文字底条」共用不透明度和底色，不透明度 0% 就不加；改回「不改」马上恢复。颜色可以选色表，也可以输入 6 位自定义色值。");
         nameNote.setPadding(0, dp(6), 0, 0);
         sName.body.addView(nameNote);
         place(sName);
@@ -894,10 +894,10 @@ public class MainActivity extends Activity {
             {"time.progress", "视频时长：播放进度"},
             {"tab.hide", "首页顶部标签隐藏"},
             {"pub.bind", "发布日期地点 / 视频时长：翻页绑定（视频数据 + 页面容器）"},
-            {"pub.text", "视频文案：改色 / 液态玻璃底 / 接手容器（上顶、文案下方位置）（设置文字时）"},
-            {"pub.anchor", "视频文案：认文案控件 / 容器 / 页面根的类（上顶、改色、液态玻璃底都要）"},
+            {"pub.text", "视频文案：改色 / 底条 / 接手容器（上顶、文案下方位置）（设置文字时）"},
+            {"pub.anchor", "视频文案：认文案控件 / 容器 / 页面根的类（上顶、改色、底条都要）"},
             {"cap.draw", "视频文案：绘制时改色"},
-            {"name.draw", "视频作者名：绘制时改色 / 液态玻璃底"},
+            {"name.draw", "视频作者名：绘制时改色 / 底条"},
             {"live.page", "直播间数据：直播间页面"},
             {"live.room", "直播间数据：进房时收到房间数据（RoomSession）"},
             {"live.online", "直播间数据：在线人数（LiveRoomAudienceWidget 收到人数推送）"},

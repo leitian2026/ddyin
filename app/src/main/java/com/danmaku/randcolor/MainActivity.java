@@ -49,7 +49,8 @@ public class MainActivity extends Activity {
 
     private EditText etPkg, etIdle, etVolStep;
     private Switch swVol;
-    private CheckBox cbVolHoriz, cbVolLock, cbVolFollow;
+    private CheckBox cbVolHoriz, cbVolLock, cbVolFollow, cbVolVal, cbVolBig, cbVolOne;
+    private LinearLayout segVolPos;
     private VolSizeField volWF, volLF;
     /** 首页顶部标签行里的 13 个标签（来自 TextRec 追踪，40.7.0）；勾选 = 隐藏。 */
     private static final String[] TAB_LABELS = {"推荐", "关注", "热点", "同城", "商城", "经验", "游戏", "少儿", "精选", "团购", "免费看剧", "短剧", "直播"};
@@ -340,7 +341,7 @@ public class MainActivity extends Activity {
         etVolStep.setHint("1～100，默认 6");
         watch(etVolStep);
         Section sVol = new Section("音量条浮窗", false, swVol,
-                () -> swVol.isChecked() ? "已开启 · " + (cbVolHoriz.isChecked() ? "横放" : "竖放") + " · 大步长 " + etVolStep.getText().toString().trim() + " · 宽 " + volWF.v + " × 长 " + volLF.v + " dp" : "已关闭");
+                () -> swVol.isChecked() ? "已开启 · " + (cbVolHoriz.isChecked() ? "横放" : "竖放") + (cbVolVal.isChecked() ? "" : " · 无当前音量") + (cbVolBig.isChecked() ? "" : " · 无大步长") + (cbVolOne.isChecked() ? "" : " · 无±1") + " · 大步长 " + etVolStep.getText().toString().trim() + " · 宽 " + volWF.v + " × 长 " + volLF.v + " dp" : "已关闭");
         sVol.body.addView(note("在抖音页面上盖一组按键（没有底板），直接调系统媒体音量，默认固定位置；想挪位置，先关掉下面的「固定位置」，再在抖音里按住最前面的当前音量拖动（位置在抖音里拖，这里不用调）。当前音量块会按音量比例填充绿色电平；后面是两组连体的加减键：橙色是大步长，蓝色是 ±1（固定）。竖放时每组上 ＋ 下 －，横放时每组左 － 右 ＋。"));
         cbVolHoriz = new CheckBox(this);
         cbVolHoriz.setText("横放");
@@ -358,6 +359,30 @@ public class MainActivity extends Activity {
         cbVolFollow.setTextSize(15);
         cbVolFollow.setTextColor(cText);
         sVol.body.addView(cbVolFollow);
+        sVol.body.addView(sub("显示哪几块"));
+        sVol.body.addView(note("三块各自一个开关，关掉的那块不显示，浮窗按剩下的变短；三块都关就不加浮窗。当前音量块关掉后没法在抖音里拖动浮窗，要挪位置先把它打开。"));
+        cbVolVal = new CheckBox(this);
+        cbVolVal.setText("当前音量");
+        cbVolVal.setTextSize(15);
+        cbVolVal.setTextColor(cText);
+        cbVolVal.setOnCheckedChangeListener((b, on) -> refreshSummaries());
+        sVol.body.addView(cbVolVal);
+        cbVolBig = new CheckBox(this);
+        cbVolBig.setText("大步长 ±N（橙色）");
+        cbVolBig.setTextSize(15);
+        cbVolBig.setTextColor(cText);
+        cbVolBig.setOnCheckedChangeListener((b, on) -> refreshSummaries());
+        sVol.body.addView(cbVolBig);
+        cbVolOne = new CheckBox(this);
+        cbVolOne.setText("±1（蓝色）");
+        cbVolOne.setTextSize(15);
+        cbVolOne.setTextColor(cText);
+        cbVolOne.setOnCheckedChangeListener((b, on) -> refreshSummaries());
+        sVol.body.addView(cbVolOne);
+        sVol.body.addView(sub("当前音量放在哪一边"));
+        sVol.body.addView(note("默认 = 横放时在加减键左边、竖放时在上边（和以前一样）。选左 / 右 / 上 / 下，就把当前音量块放到加减键的那一边；比如横放 + 上，就是一行加减键、当前音量在它上面一整条。改完保存并应用，抖音回到前台后生效。"));
+        segVolPos = segmented("默认", "左", "右", "上", "下");
+        sVol.body.addView(segVolPos);
         sVol.body.addView(sub("大步长（按一下加减多少）"));
         sVol.body.addView(note("比如填 6，按一下大步长的 ＋ 就加 6，－ 就减 6；超出音量范围就停在最大 / 最小。改完保存并应用，抖音回到前台后生效。"));
         sVol.body.addView(etVolStep);
@@ -704,6 +729,10 @@ public class MainActivity extends Activity {
         cbVolHoriz.setChecked(c.volHoriz);
         cbVolLock.setChecked(c.volLock);
         cbVolFollow.setChecked(c.volFollow);
+        cbVolVal.setChecked(c.volShowVal);
+        cbVolBig.setChecked(c.volShowBig);
+        cbVolOne.setChecked(c.volShowOne);
+        setSeg(segVolPos, c.volValPos + 1);
         volWF.set(c.volW);
         volLF.set(c.volL);
         for (int i = 0; i < TAB_LABELS.length; i++) {
@@ -753,6 +782,10 @@ public class MainActivity extends Activity {
         c.volHoriz = cbVolHoriz.isChecked();
         c.volLock = cbVolLock.isChecked();
         c.volFollow = cbVolFollow.isChecked();
+        c.volShowVal = cbVolVal.isChecked();
+        c.volShowBig = cbVolBig.isChecked();
+        c.volShowOne = cbVolOne.isChecked();
+        c.volValPos = segIndex(segVolPos) - 1;
         c.volW = volWF.v;
         c.volL = volLF.v;
         try {

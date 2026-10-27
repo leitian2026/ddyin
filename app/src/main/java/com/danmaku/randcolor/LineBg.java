@@ -54,6 +54,12 @@ final class LineBg {
     /** 底左右两端再各加长的像素（物理像素，不随字号变）。 */
     private static final float END_PX = 13f;
 
+    /** 底上面的字的投影：和 VolPanel.Val「当前音量」的字一样（半径 2dp、下移 1dp、0xAA 黑）。 */
+    static void shadow(TextView t) {
+        float den = t.getResources().getDisplayMetrics().density;
+        t.setShadowLayer((int) (2f * den + 0.5f), 0f, (int) (den + 0.5f), 0xAA000000);
+    }
+
     /** 自己放的两行的内边距：3sp，给底和它的描边留地方（底只比字多 1sp）。PubHook 用它抵消行距 / 左边距。 */
     static int pad(Context c) {
         return Math.round(3f * c.getResources().getDisplayMetrics().scaledDensity);
@@ -92,20 +98,22 @@ final class LineBg {
         drawPill(cv, l - pad - END_PX, t - pad, r + pad + END_PX, b + pad, sd, pct);
     }
 
-    /** 画一条两端半圆的底（l,t,r,b = 底的外框）：半透明填充 + 1sp 的白色描边，和音量块的底一样；描边向里画，外框大小不变。 */
+    /** 画一条两端半圆的底（l,t,r,b = 底的外框）：半透明填充 + 1dp 的白色描边，和音量块的底一样；描边向里画，外框大小不变。 */
     private static void drawPill(Canvas cv, float l, float t, float r, float b, float sd, int pct) {
         float f = Math.min(100, pct) / 100f;
         int fillA = Math.round(FILL_A * f), edgeA = Math.round(EDGE_A * f);
         int tint = DanmakuHook.cfg.lineBgColor == 0 ? WHITE : (DanmakuHook.cfg.lineBgColor & 0xFFFFFF); // 用户选的底色；0 = 默认白
-        float half = sd / 2f;
+        float den = android.content.res.Resources.getSystem().getDisplayMetrics().density;
+        float sw = (int) (den + 0.5f); // 描边 = 1dp 取整到整数像素，和 VolPanel.Val 的 dp(ctx, 1) 一样
+        float half = sw / 2f;
         BOX.set(l + half, t + half, r - half, b - half);
         if (BOX.right <= BOX.left || BOX.bottom <= BOX.top) return;
-        float rad = BOX.height() / 2f; // 两端半圆
+        float rad = Math.min((int) (12f * den + 0.5f), BOX.height() / 2f); // 圆角 = 12dp（VolPanel.OUT_R），高不够时取高的一半
         PAINT.setStyle(Paint.Style.FILL);
         PAINT.setColor(tint | fillA << 24);
         cv.drawRoundRect(BOX, rad, rad, PAINT);
         PAINT.setStyle(Paint.Style.STROKE);
-        PAINT.setStrokeWidth(sd);
+        PAINT.setStrokeWidth(sw);
         PAINT.setColor(WHITE | edgeA << 24);
         cv.drawRoundRect(BOX, rad, rad, PAINT);
     }
@@ -120,6 +128,7 @@ final class LineBg {
             int p = pad(c), px = padX(c);
             setPadding(px, p, px, p);
             setIncludeFontPadding(false); // 行高 = 字本身的行高，和文案的行距一样
+            shadow(this); // 字的投影和音量块一样
         }
 
         // 自己或任何一层父控件显示 / 隐藏都会走到这里（View 自带的分发），不用轮询；isShown 只沿父链往上数，不扫控件

@@ -57,17 +57,18 @@ final class LineBg {
     private static final int SH_TAG = 0x7e0b0c05;
 
     /**
-     * 底上面的字的投影：形状和 VolPanel.Val「当前音量」的字一样（半径 2dp、下移 1dp、黑色），不透明度按设置页的 lineShadow（%）；0 = 不加。
+     * 底上面的字的投影：形状和 VolPanel.Val「当前音量」的字一样（半径 2dp、下移 1dp、黑色），不透明度按设置页的 lineShadow（%）；半径 / 下移按 lineShadowR / lineShadowDy（0.5dp 一档）；0% = 不加。
      * 每个控件只在不透明度变了才重设（tag 记着上次的值），画的路径里调用没有额外开销。
      */
     static void shadow(TextView t) {
-        int pct = DanmakuHook.cfg.lineShadow;
+        DanmakuConfig c = DanmakuHook.cfg;
+        int pct = c.lineShadow, key = pct | c.lineShadowR << 8 | c.lineShadowDy << 16;
         Object tag = t.getTag(SH_TAG);
-        if (tag instanceof Integer && (Integer) tag == pct) return;
-        t.setTag(SH_TAG, pct);
+        if (tag instanceof Integer && (Integer) tag == key) return;
+        t.setTag(SH_TAG, key);
         float den = t.getResources().getDisplayMetrics().density;
         if (pct <= 0) t.setShadowLayer(0f, 0f, 0f, 0);
-        else t.setShadowLayer((int) (2f * den + 0.5f), 0f, (int) (den + 0.5f), Math.round(255f * pct / 100f) << 24);
+        else t.setShadowLayer(Math.max(1, Math.round(c.lineShadowR * den / 2f)), 0f, Math.round(c.lineShadowDy * den / 2f), Math.round(255f * pct / 100f) << 24);
     }
 
     /** 自己放的两行的内边距：3sp，给底和它的描边留地方（底只比字多 1sp）。PubHook 用它抵消行距 / 左边距。 */

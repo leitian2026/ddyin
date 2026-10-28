@@ -92,6 +92,7 @@ final class DanmakuHook {
         CommentHook.tryHook(lp.classLoader);
         TimeHook.tryHook(lp.classLoader);
         TabHook.tryHook(lp.classLoader);
+        BotGlass.tryHook(lp.classLoader);
         ProfHook.tryHook(lp.classLoader);
         LongPressHook.tryHook(lp.classLoader);
         PubHook.tryHook(lp.classLoader);
@@ -164,6 +165,7 @@ final class DanmakuHook {
                         CommentHook.tryHook(cl);
                         TimeHook.tryHook(cl);
                         TabHook.tryHook(cl);
+                        BotGlass.tryHook(cl);
                         ProfHook.tryHook(cl);
                         LongPressHook.tryHook(cl);
                         PubHook.tryHook(cl);

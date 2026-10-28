@@ -73,7 +73,7 @@ public class MainActivity extends Activity {
     private HalfDpField shRF, shDyF;
     private PctField tabRowF, tabItemF, tabShF;
     private ColorField tabRowColorF, tabItemColorF, tabTextColorF, tabTextSelColorF;
-    private CheckBox cbTabCenter, cbBotGlass;
+    private CheckBox cbTabCenter, cbBotGlass, cbTabGlass;
     private HalfDpField tabShRF, tabShDyF, tabGapF, tabRowPadXF, tabRowPadYF;
     private PctField tabItemHF;
     private HalfDpField tabSpreadF;
@@ -363,7 +363,14 @@ public class MainActivity extends Activity {
         tabGapF = new HalfDpField(0, 32, 12);
         tabRowPadXF = new HalfDpField(0, 40, 14);
         tabRowPadYF = new HalfDpField(0, 40, 12);
-        Section sTabGlass = new Section("首页顶部标签液态玻璃", false, null, () -> "整行 " + (tabRowF.v == 0 ? "关" : tabRowF.v + "%") + " · 每个标签 " + (tabItemF.v == 0 ? "关" : tabItemF.v + "%"));
+        Section sTabGlass = new Section("首页顶部标签液态玻璃", false, null, () -> (cbTabGlass != null && !cbTabGlass.isChecked() ? "顶部关 · " : "") + "整行 " + (tabRowF.v == 0 ? "关" : tabRowF.v + "%") + " · 每个标签 " + (tabItemF.v == 0 ? "关" : tabItemF.v + "%"));
+        cbTabGlass = new CheckBox(this);
+        cbTabGlass.setText("顶部标签加液态玻璃");
+        cbTabGlass.setTextSize(15);
+        cbTabGlass.setTextColor(cText);
+        cbTabGlass.setOnCheckedChangeListener((b, on) -> refreshSummaries());
+        sTabGlass.body.addView(cbTabGlass);
+        sTabGlass.body.addView(note("关掉后顶部标签行的整行玻璃和每个标签的玻璃都不画（马上生效）；标签文字的投影、撑开间距、居中、文字颜色不受影响。底部导航的玻璃由下面那个开关单独管。"));
         cbBotGlass = new CheckBox(this);
         cbBotGlass.setText("底部导航（首页 / 朋友 / 消息 / 我）也加同样的玻璃");
         cbBotGlass.setTextSize(15);
@@ -852,6 +859,7 @@ public class MainActivity extends Activity {
         tabSpreadF.set(c.tabSpread);
         cbTabCenter.setChecked(c.tabCenter);
         cbBotGlass.setChecked(c.botGlass);
+        cbTabGlass.setChecked(c.tabGlass);
         tabTextColorF.set(c.tabTextColor);
         tabTextSelColorF.set(c.tabTextSelColor);
         tabRowPadXF.set(c.tabRowPadX);
@@ -921,6 +929,7 @@ public class MainActivity extends Activity {
         c.tabSpread = tabSpreadF.v;
         c.tabCenter = cbTabCenter.isChecked();
         c.botGlass = cbBotGlass.isChecked();
+        c.tabGlass = cbTabGlass.isChecked();
         c.tabTextColor = tabTextColorF.color;
         c.tabTextSelColor = tabTextSelColorF.color;
         c.tabRowPadX = tabRowPadXF.v;

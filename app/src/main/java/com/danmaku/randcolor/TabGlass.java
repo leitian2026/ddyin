@@ -228,7 +228,7 @@ final class TabGlass {
         return Math.round(dpf(v));
     }
 
-    private static float dpf(float v) {
+    static float dpf(float v) {
         return v * android.content.res.Resources.getSystem().getDisplayMetrics().density;
     }
 
@@ -236,7 +236,7 @@ final class TabGlass {
     private static final RectF BX = new RectF();
     private static final Path PT = new Path();
 
-    private abstract static class Glass extends Drawable {
+    abstract static class Glass extends Drawable {
         @Override public void setAlpha(int alpha) {}
         @Override public void setColorFilter(ColorFilter cf) {}
         @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
@@ -275,7 +275,7 @@ final class TabGlass {
      * 叠法（自下而上）：半透明底色（比文字底条的玻璃更透，让后面的画面透出来）→ 竖向高光渐变 → 上半部弧形反光 → 边缘光：左上亮边、右侧一道暗边、下沿折射回来的亮弧、
      * 左上偏青 / 右下偏暖的色散细边 → 一圈 1dp 的白色细轮廓。边缘光都是把形状错开一点再抠出来的月牙，两端自然变细。
      */
-    private static void glass(Canvas cv, float l, float t, float r, float b, float f, float lvl, int color, boolean selected) {
+    static void glass(Canvas cv, float l, float t, float r, float b, float f, float lvl, int color, boolean selected) {
         float h = b - t, rad = h / 2f, k = f * lvl, d = dpf(1f);
         int col = color == 0 ? DEF_COLOR : (color & 0xFFFFFF);
         BX.set(l, t, r, b);
@@ -333,7 +333,7 @@ final class TabGlass {
      *  - 玻璃下面有一道淡黑色投影（往下偏 1.5dp、向外 3 层逐层变淡；只画在玻璃外面，不压暗玻璃本身；不用 BlurMaskFilter，硬件绘制下画不出来）；
      *  - 选中的标签（描述里有「已选中」）再亮一档。
      */
-    private static final class ItemGlass extends Glass {
+    static final class ItemGlass extends Glass {
         boolean selected;
 
         @Override

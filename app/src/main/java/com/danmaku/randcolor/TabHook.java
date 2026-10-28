@@ -49,7 +49,7 @@ final class TabHook {
 
     /** 玻璃 / 标签文字投影 / 撑开间距 / 居中 / 文字颜色有没有开（隐藏标签之外挂这个钩子的另一个理由）。 */
     private static boolean glassOn(DanmakuConfig c) {
-        return c.tabRowBg > 0 || c.tabItemBg > 0 || c.tabShadow > 0 || c.tabSpread > 0
+        return (c.tabGlass && (c.tabRowBg > 0 || c.tabItemBg > 0)) || c.tabShadow > 0 || c.tabSpread > 0
                 || c.tabCenter || c.tabTextColor != 0 || c.tabTextSelColor != 0;
     }
 

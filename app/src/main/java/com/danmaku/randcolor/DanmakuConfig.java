@@ -94,8 +94,8 @@ public final class DanmakuConfig {
     public boolean volLock = true;
     /** 音量浮窗跟随显示（默认关）：开着时，只有这个窗口里有视频时长浮层，或直播间开播时间那块文字在显示，浮窗才显示；都没有就藏起来。 */
     public boolean volFollow = false;
-    /** 评论打开时隐藏音量浮窗（默认开）：这个窗口里有视频时长行（挂着），但它被藏起来了（评论打开时抖音把视频页藏起来，时长行跟着不显示），浮窗就藏；没有时长行的页面照常显示。见 VolPanel。 */
-    public boolean volHideCmt = true;
+    /** 让评论盖住音量条（默认开，1.44.1）：音量条照视频时长行的做法加进每一页的根（pub.bind 拿到的页面根），评论面板画在页面上面所以盖住它；关着就只用窗口最上层那一份。见 VolPanel。 */
+    public boolean volUnderCmt = true;
     /** 音量浮窗里每一块单独的开关（默认都显示）：当前音量块、大步长一对（橙）、±1 一对（蓝）。三个都关就不加浮窗。 */
     public boolean volShowVal = true, volShowBig = true, volShowOne = true;
     /** 当前音量块放在加减键的哪一边：-1 = 默认（横放在左、竖放在上，和以前一样）、0 左、1 右、2 上、3 下。见 VolPanel。 */
@@ -134,7 +134,7 @@ public final class DanmakuConfig {
             p.setProperty("volHoriz", String.valueOf(volHoriz));
             p.setProperty("volLock", String.valueOf(volLock));
             p.setProperty("volFollow", String.valueOf(volFollow));
-            p.setProperty("volHideCmt", String.valueOf(volHideCmt));
+            p.setProperty("volUnderCmt", String.valueOf(volUnderCmt));
             p.setProperty("volShowVal", String.valueOf(volShowVal));
             p.setProperty("volShowBig", String.valueOf(volShowBig));
             p.setProperty("volShowOne", String.valueOf(volShowOne));
@@ -324,7 +324,7 @@ public final class DanmakuConfig {
         c.volHoriz = Boolean.parseBoolean(p.getProperty("volHoriz", "false").trim());
         c.volLock = Boolean.parseBoolean(p.getProperty("volLock", "true").trim());
         c.volFollow = Boolean.parseBoolean(p.getProperty("volFollow", "false").trim());
-        c.volHideCmt = Boolean.parseBoolean(p.getProperty("volHideCmt", "true").trim());
+        c.volUnderCmt = Boolean.parseBoolean(p.getProperty("volUnderCmt", "true").trim());
         c.volShowVal = Boolean.parseBoolean(p.getProperty("volShowVal", "true").trim());
         c.volShowBig = Boolean.parseBoolean(p.getProperty("volShowBig", "true").trim());
         c.volShowOne = Boolean.parseBoolean(p.getProperty("volShowOne", "true").trim());

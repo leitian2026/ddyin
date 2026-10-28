@@ -152,15 +152,37 @@ final class DanmakuHook {
                 protected void afterHookedMethod(MethodHookParam p) {
                     try {
                         reload();
+                        // 无操作自动退出排在最前，且下面每一项各包一层 try：前面任何一个抛异常都不能让它排不上消息
+                        try {
+                            IdleExit.onResume();
+                        } catch (Throwable ignored) {
+                        }
                         if (!(p.thisObject instanceof Activity)) return;
                         Activity a = (Activity) p.thisObject;
-                        PubHook.onResume(a);
-                        LongPressHook.onResume();
-                        LiveCardHook.onResume();
-                        VolPanel.onResume(a);
-                        LiveHook.onResume();
-                        IdleExit.onResume();
-                        HookGuard.noteVersion(a);
+                        try {
+                            PubHook.onResume(a);
+                        } catch (Throwable ignored) {
+                        }
+                        try {
+                            LongPressHook.onResume();
+                        } catch (Throwable ignored) {
+                        }
+                        try {
+                            LiveCardHook.onResume();
+                        } catch (Throwable ignored) {
+                        }
+                        try {
+                            VolPanel.onResume(a);
+                        } catch (Throwable ignored) {
+                        }
+                        try {
+                            LiveHook.onResume();
+                        } catch (Throwable ignored) {
+                        }
+                        try {
+                            HookGuard.noteVersion(a);
+                        } catch (Throwable ignored) {
+                        }
                         // 每个钩子都有结论（挂上 / 放弃 / 不再重试）之后，回到前台不再扫描类、不再挂钩
                         if (HookGuard.allSettled()) return;
                         ClassLoader cl = a.getClass().getClassLoader();

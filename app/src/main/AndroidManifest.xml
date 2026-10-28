@@ -3,6 +3,8 @@
 
     <!-- 「打开浮窗调整位置」要用 getLaunchIntentForPackage 启动抖音（Android 11+ 的包可见性） -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <!-- 备份到坚果云（WebDAV）：只在设置页点「立即备份 / 从坚果云恢复」时联网 -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:allowBackup="false"

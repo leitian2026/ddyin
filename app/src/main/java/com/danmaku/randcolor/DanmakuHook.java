@@ -326,14 +326,14 @@ final class DanmakuHook {
      *  - MultiParagraph 有 getLineCount() / getLineLeft(int) / getLineRight(int) / getLineTop(int) / getLineBottom(int)，没被混淆；
      *  - paint 的第一个参数（Compose Canvas 的实现类）里有一个类型是 android.graphics.Canvas 的字段（按类型找，不依赖名字）。
      * 任何一项对不上都安静地不画底，不影响弹幕本身。
-     * 每条弹幕的文字框按对象身份缓存（256 项直接映射，和颜色缓存同一个思路），热路径里不反射、不分配。
+     * 每条弹幕的文字框按对象身份缓存（1024 项直接映射，和颜色缓存一样大，和颜色缓存同一个思路），热路径里不反射、不分配。
      */
     private static volatile Class<?> ncCls;
     private static volatile Field ncF;
     private static volatile Class<?> geoCls;
     private static volatile Method gCount, gLeft, gRight, gTop, gBottom;
-    private static final int[] GKEY = new int[256];
-    private static final float[] GBOX = new float[256 * 4];
+    private static final int[] GKEY = new int[1024]; // 256 项时弹幕一多就互相挤掉，每次挤掉都要反射重量一遍
+    private static final float[] GBOX = new float[1024 * 4];
     private static float SD; // scaledDensity 缓存（主线程绘制用）
 
     private static void drawBg(Object mp, Object composeCanvas, int pct) {
@@ -341,7 +341,7 @@ final class DanmakuHook {
         android.graphics.Canvas nc = nativeCanvas(composeCanvas);
         if (nc == null) return;
         int key = System.identityHashCode(mp);
-        int slot = (key ^ (key >>> 8)) & 255;
+        int slot = (key ^ (key >>> 8)) & 1023;
         int o = slot * 4;
         if (GKEY[slot] != key) {
             measure(mp, o);

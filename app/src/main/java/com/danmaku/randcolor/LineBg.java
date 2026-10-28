@@ -299,7 +299,7 @@ final class LineBg {
 
     /** 自己放的两行（发布信息、时长）用的 TextView：先画底再画字；上下留出 3sp、左右留出 3sp + 13px 的内边距，底才不会被控件边界裁掉。 */
     static final class Row extends TextView {
-        /** 视频时长那一行：显示 / 隐藏 / 挂上 / 摘下时告诉音量浮窗（VolPanel「跟随显示」）；别的行不通知。 */
+        /** 视频时长那一行：显示 / 隐藏 / 摘下时告诉音量浮窗（VolPanel「跟随显示」）；别的行不通知。 */
         boolean follow;
 
         Row(Context c) {
@@ -314,18 +314,18 @@ final class LineBg {
         @Override
         protected void onVisibilityChanged(View changedView, int visibility) {
             super.onVisibilityChanged(changedView, visibility);
-            if (follow) VolPanel.source(this, isShown(), isAttachedToWindow());
+            if (follow) VolPanel.source(this, isShown());
         }
 
         @Override
         protected void onAttachedToWindow() {
             super.onAttachedToWindow();
-            if (follow) VolPanel.source(this, isShown(), true);
+            if (follow) VolPanel.source(this, isShown());
         }
 
         @Override
         protected void onDetachedFromWindow() {
-            if (follow) VolPanel.source(this, false, false); // 摘下时父链还在，isShown 会误判成真，这里直接给假
+            if (follow) VolPanel.source(this, false); // 摘下时父链还在，isShown 会误判成真，这里直接给假
             super.onDetachedFromWindow();
         }
 

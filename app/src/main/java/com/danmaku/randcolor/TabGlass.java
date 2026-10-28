@@ -74,7 +74,6 @@ final class TabGlass {
     }
 
     private static final int CENTER_TAG = 0x7e0b0c09, SHIFT_TAG = 0x7e0b0c0a;
-    private static final int[] LOC = new int[2]; // 主线程用，复用
 
     /** 挂在标签行（MainTabRelativeLayout）上的布局监听：行每次重新布局（隐藏 / 显示标签、标签宽度变）之后重新居中。 */
     private static final class Centerer implements View.OnLayoutChangeListener {
@@ -100,6 +99,7 @@ final class TabGlass {
      * 把「当前看得见的标签」的左右外沿并起来（和 RowGlass 同一套算法），把它的中点平移到窗口宽度的一半。
      * 什么时候算：标签行（MainTabRelativeLayout）上挂一个 OnLayoutChangeListener，行每次布局完算一次（隐藏标签后会重新布局）；
      * attach 里布局已经完成时也算一次。attach 时布局还在排队（isLayoutRequested）就不算，等监听来算。
+     * 1.44.4：位置只按布局算（忽略祖先的平移 / 缩放），见 center() 里的说明。
      * 没追踪过的（上机看）：① MainTabStripNew 平移后它的触摸范围会跟着移，如果它比标签行宽很多、盖到右上角搜索按钮上，搜索按钮可能点不到；
      * ② 抖音有没有在别处自己设过这个控件的 translationX；③ 标签多到超出横向滚动容器时，只把看得见的那一段居中。
      * 关掉 tabCenter 后，下一次布局时把平移还原成 0（只还原我们设过的）。
@@ -139,11 +139,24 @@ final class TabGlass {
             R = Math.max(R, x2);
         }
         if (R <= L) return;
+        if (!strip.isAttachedToWindow()) return;
         int w = strip.getRootView().getWidth();
         if (w <= 0) return;
-        strip.getLocationInWindow(LOC); // 含 strip 现在的 translationX
-        float now = LOC[0] + (L + R) / 2f;
-        float nt = tx + (w / 2f - now);
+        // 1.44.4：不再用 getLocationInWindow。它含「strip 自己和所有祖先的 translationX / scroll」，页面滑动 / 切页过渡中祖先在平移，
+        // 此刻算出来的补偿量会被固化进 strip 的 translationX，过渡结束后没有新的布局来纠正 → 标签行偏出屏幕（只剩几个字在屏幕里）甚至整行不见。
+        // 现在只按布局位置算：strip 在窗口里的「未平移」左沿 = 沿父级向上累加 (getLeft − 父级 scrollX)，一路忽略所有 translation；
+        // 平移量 = 窗口中点 − (未平移左沿 + 可见标签的中点)，是绝对值，不依赖 strip 现在的 translationX，反复算结果一样。
+        float base = 0f;
+        View v = strip;
+        while (true) {
+            base += v.getLeft();
+            ViewParent vp = v.getParent();
+            if (!(vp instanceof View)) break; // 到根了（DecorView 的父级是 ViewRootImpl）
+            View pv = (View) vp;
+            base -= pv.getScrollX();
+            v = pv;
+        }
+        float nt = w / 2f - (base + (L + R) / 2f);
         if (Math.abs(nt - tx) < 0.5f) return;
         strip.setTag(SHIFT_TAG, Boolean.TRUE);
         strip.setTranslationX(nt);

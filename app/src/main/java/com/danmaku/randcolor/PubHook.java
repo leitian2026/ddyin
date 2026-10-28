@@ -433,7 +433,7 @@ final class PubHook {
             try {
                 if (!isMain() || p.thisObject == null || p.args == null || p.args.length == 0 || p.args[0] == null) return;
                 DanmakuConfig c = DanmakuHook.cfg;
-                if (!c.pubAlways && !c.timeAlways && !styleOn()) return; // 全关着：回到前台时已经把现有的行藏起来了
+                if (!c.pubAlways && !c.timeAlways && !styleOn() && !VolPanel.pageOn()) return; // 全关着：回到前台时已经把现有的行藏起来了（音量条放进页面根也要走这里）
                 Field fa = fAid;
                 if (fa == null || fTime == null) return;
                 Object o = fa.get(p.args[0]);
@@ -745,6 +745,7 @@ final class PubHook {
         }
         updatePub(r);
         updateTimeInit(r);
+        VolPanel.page(r.root); // 音量条（volUnderCmt）：和时长行一样加在这一页的根里，评论面板盖在上面就盖住它；关着就撤掉
     }
 
     /** 回到前台（配置刚重读过）：见过的页面按新配置（开关、模板、字号、颜色、空白行高度、位置）重新套一遍。 */

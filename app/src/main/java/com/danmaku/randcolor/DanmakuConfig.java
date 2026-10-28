@@ -50,6 +50,10 @@ public final class DanmakuConfig {
     public int lineShadow = 65;
     /** 字的投影的模糊半径 / 向下偏移，单位 0.5dp（4 = 2dp）：半径 1～10（0.5～5dp），偏移 0～10（0～5dp）。默认 2dp / 1dp，和音量块的字一样。见 LineBg.shadow。 */
     public int lineShadowR = 4, lineShadowDy = 2;
+    /** 首页顶部标签的两层液态玻璃（见 TabGlass）：整行一层（tabRow*）、每个标签各一层（tabItem*）；不透明度 0～100%，0 = 不画；底色 0xAARRGGBB，0 = 默认（偏白的中浅灰）。 */
+    public int tabRowBg = 100, tabRowColor = 0, tabItemBg = 100, tabItemColor = 0;
+    /** 标签文字的投影（黑色）：不透明度 %、半径 / 下移（0.5dp 一档），含义同 lineShadow*。 */
+    public int tabShadow = 65, tabShadowR = 4, tabShadowDy = 2;
     /** 文字底条的填充颜色（0xAARRGGBB，不透明）；0 = 默认（白色，和音量块的底一样；1.42.17 前是近黑 #101010）。不透明度仍由 lineBg 管，描边始终白色。见 LineBg。 */
     public int lineBgColor = 0;
     /** 模块自己决定颜色的字（弹幕随机色）的最低亮度（0～100，%，每档 5）：比这暗的颜色往白色提亮；0 = 不提亮。见 LineBg.legible。 */
@@ -131,6 +135,13 @@ public final class DanmakuConfig {
             p.setProperty("lineShadow", String.valueOf(lineShadow));
             p.setProperty("lineShadowR", String.valueOf(lineShadowR));
             p.setProperty("lineShadowDy", String.valueOf(lineShadowDy));
+            p.setProperty("tabRowBg", String.valueOf(tabRowBg));
+            p.setProperty("tabRowColor", String.valueOf(tabRowColor));
+            p.setProperty("tabItemBg", String.valueOf(tabItemBg));
+            p.setProperty("tabItemColor", String.valueOf(tabItemColor));
+            p.setProperty("tabShadow", String.valueOf(tabShadow));
+            p.setProperty("tabShadowR", String.valueOf(tabShadowR));
+            p.setProperty("tabShadowDy", String.valueOf(tabShadowDy));
             p.setProperty("lineBgColor", String.valueOf(lineBgColor));
             p.setProperty("textLift", String.valueOf(textLift));
             p.setProperty("blankH", String.valueOf(blankH));
@@ -257,6 +268,13 @@ public final class DanmakuConfig {
         c.lineShadow = parsePct(p.getProperty("lineShadow", "65"), 65);
         c.lineShadowR = Math.max(1, Math.min(10, parseIntOr(p.getProperty("lineShadowR", "4"), 4)));
         c.lineShadowDy = Math.max(0, Math.min(10, parseIntOr(p.getProperty("lineShadowDy", "2"), 2)));
+        c.tabRowBg = parsePct(p.getProperty("tabRowBg", "100"), 100);
+        c.tabRowColor = parseColor(p.getProperty("tabRowColor", "0"));
+        c.tabItemBg = parsePct(p.getProperty("tabItemBg", "100"), 100);
+        c.tabItemColor = parseColor(p.getProperty("tabItemColor", "0"));
+        c.tabShadow = parsePct(p.getProperty("tabShadow", "65"), 65);
+        c.tabShadowR = Math.max(1, Math.min(10, parseIntOr(p.getProperty("tabShadowR", "4"), 4)));
+        c.tabShadowDy = Math.max(0, Math.min(10, parseIntOr(p.getProperty("tabShadowDy", "2"), 2)));
         c.lineBgColor = parseColor(p.getProperty("lineBgColor", "0"));
         c.textLift = parsePct(p.getProperty("textLift", "30"), 30);
         c.blankH = Math.max(-1, Math.min(200, parseIntOr(p.getProperty("blankH", "-1"), -1)));

@@ -244,6 +244,8 @@ final class VolPanel {
     private static final java.util.ArrayList<WeakReference<Bar>> LIVE_BARS = new java.util.ArrayList<>();
     private static Context rcvCtx;
     private static boolean rcvOn;
+    /** 接收器在听期间的当前音乐音量（-1 = 还没读过）；接收器没登记时不可信，不要用。 */
+    private static int curVol = -1;
 
     /** 只有一个接收器：N 个页面各注册一个会让每次音量变化唤醒 N 次、各查一次系统音量。 */
     private static final BroadcastReceiver RECEIVER = new BroadcastReceiver() {
@@ -252,10 +254,12 @@ final class VolPanel {
             try {
                 // 只认音乐流（别的流变了不用刷新）
                 if (intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_TYPE", -1) != AudioManager.STREAM_MUSIC) return;
+                int v = ((AudioManager) context.getSystemService(Context.AUDIO_SERVICE)).getStreamVolume(AudioManager.STREAM_MUSIC);
+                curVol = v; // 整个模块只查这一次
                 for (int i = LIVE_BARS.size() - 1; i >= 0; i--) {
                     Bar b = LIVE_BARS.get(i).get();
                     if (b == null) LIVE_BARS.remove(i);
-                    else b.refresh();
+                    else b.show(v);
                 }
             } catch (Throwable ignored) {
             }
@@ -285,6 +289,7 @@ final class VolPanel {
         }
         rcvOn = false;
         rcvCtx = null;
+        curVol = -1;
     }
 
     // ------------------------------------------------------------ 浮窗本体
@@ -499,6 +504,12 @@ final class VolPanel {
 
         void refresh() {
             int v = am.getStreamVolume(AudioManager.STREAM_MUSIC);
+            curVol = v;
+            show(v);
+        }
+
+        /** 已经知道当前音量了（共用接收器读一次，发给所有条）：只更新显示，不再各自查系统音量（binder 调用）。 */
+        void show(int v) {
             if (v == shown) return;
             shown = v;
             if (tvVal != null) tvVal.set(v, max);
@@ -580,8 +591,10 @@ final class VolPanel {
         private void register() {
             if (receiverOn) return;
             receiverOn = true;
+            boolean had = rcvOn; // 接收器已经在听：curVol 一直是最新的，不用再查系统音量
             addLive(this);
-            refresh(); // 不可见期间可能变过
+            if (had && curVol >= 0) show(curVol);
+            else refresh(); // 第一个条 / 不可见期间可能变过：查一次
         }
 
         private void unregister() {

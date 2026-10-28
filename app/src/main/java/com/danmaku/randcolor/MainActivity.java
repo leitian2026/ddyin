@@ -342,7 +342,7 @@ public class MainActivity extends Activity {
         tabShRF = new HalfDpField(1, 10, 4);
         tabShDyF = new HalfDpField(0, 10, 2);
         Section sTabGlass = new Section("首页顶部标签液态玻璃", false, null, () -> "整行 " + (tabRowF.v == 0 ? "关" : tabRowF.v + "%") + " · 每个标签 " + (tabItemF.v == 0 ? "关" : tabItemF.v + "%"));
-        sTabGlass.body.addView(note("给首页顶部标签行（推荐、关注……）加两层液态玻璃：整行连在一起一层，每个标签自己再一层；画法和文字底条的玻璃一样。0% = 不画；不透明度和底色改了马上生效，字的投影要等标签行刷新（切一下页、或重启抖音）。"));
+        sTabGlass.body.addView(note("给首页顶部标签行（推荐、关注……）加两层液态玻璃：整行连在一起一层，每个标签自己再一层；画法是更立体的一套（高光、弧形反光、边缘光、细轮廓），标签是小长条，选中的标签更亮。0% = 不画；不透明度和底色改了马上生效，字的投影要等标签行刷新（切一下页、或重启抖音）。"));
         sTabGlass.body.addView(settingRow("整行 不透明度", tabRowF.build()));
         sTabGlass.body.addView(rowLine());
         sTabGlass.body.addView(tabRowColorF.row("整行 底色"));

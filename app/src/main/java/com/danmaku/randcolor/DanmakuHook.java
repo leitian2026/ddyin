@@ -97,6 +97,7 @@ final class DanmakuHook {
         LongPressHook.tryHook(lp.classLoader);
         PubHook.tryHook(lp.classLoader);
         LiveHook.tryHook(lp.classLoader);
+        LiveCardHook.tryHook(lp.classLoader);
         IdleExit.install();
         hookResume();
     }
@@ -155,6 +156,7 @@ final class DanmakuHook {
                         Activity a = (Activity) p.thisObject;
                         PubHook.onResume(a);
                         LongPressHook.onResume();
+                        LiveCardHook.onResume();
                         VolPanel.onResume(a);
                         LiveHook.onResume();
                         IdleExit.onResume();
@@ -170,6 +172,7 @@ final class DanmakuHook {
                         LongPressHook.tryHook(cl);
                         PubHook.tryHook(cl);
                         LiveHook.tryHook(cl);
+                        LiveCardHook.tryHook(cl);
                         tryInstall(cl); // Compose 类可能晚于进程启动才可用
                     } catch (Throwable ignored) {
                     }

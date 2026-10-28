@@ -43,9 +43,12 @@ import android.widget.TextView;
  * 跟随显示（volFollow，默认关）：开着时只有这个窗口里有视频时长行（LineBg.Row.follow，显示 / 隐藏 / 挂上 / 摘下由 View 自己的回调告诉这里）
  * 或直播间的开播时间文字（LiveHook 的 show / hide / dispose 告诉这里）在显示，浮窗才显示，都没有就 GONE；不加钩子、不轮询、不扫控件。
  *
- * 评论打开时隐藏（volHideCmt，默认开，1.44.0）：这个窗口里有视频时长行挂着、但它被藏起来了（评论打开时抖音把视频页藏起来，时长行跟着不显示），
- * 而且没有别的来源在显示，浮窗就 GONE；评论关了时长行回来就恢复。没有时长行的页面照常显示。用的还是上面那几个 View 自带的回调，不加钩子；
- * 「评论打开 → 视频页被藏 → 时长行 isShown 变假」是按「评论打开时视频时长不显示」推的，没有 TextRec 证据；预加载的邻页如果也挂着一行而且 isShown 为真，浮窗就不会藏。
+ * 让评论盖住音量条（volUnderCmt，默认开，1.44.1）：开着时音量条不再只加在窗口最上层，而是照视频时长行的做法加进每一页的根
+ * （PubHook 的 pub.bind 回调拿到的 VideoViewHolderRootView，作为它最后一个子控件，见 page）。评论面板画在这一页上面，所以评论一弹出来就盖住它，
+ * 并且随页面上下滑动；不新增钩子，pub.bind 的回调在这个开关开着时也会走（PubHook.BindHook 用 pageOn 判断）。
+ * 窗口里只要有页面里的音量条挂着，窗口最上层那一份就让位（GONE）；没有页面根的地方（直播间、没有视频页的页面）还用窗口最上层这一份。
+ * 页面里的条不受「跟随显示」管（它本来就只在视频页里）。页面根不是 FrameLayout、pub.bind 没挂上：什么都不做，窗口这一份照旧。
+ * 关着这个开关：不往页面里加，已经加的在回到前台时撤掉，保持 1.44.0 之前的样子。
  *
  * 不是钩子：不挂任何方法，只在 Activity.onResume（DanmakuHook.hookResume 已经挂着的框架方法）里被调到；没有定时器、没有轮询，
  * 没有长按连发。广播接收器只在浮窗所在窗口可见时注册（切后台 / 离开窗口就注销），只认音乐流的变化、读数没变不刷新（也不重绘）；
@@ -56,7 +59,8 @@ import android.widget.TextView;
 final class VolPanel {
     private VolPanel() {}
 
-    private static final String TAG = "dyin_vol";
+    private static final String TAG = "dyin_vol";           // 窗口最上层那一份
+    private static final String TAG_PAGE = "dyin_vol_page";   // 页面根里的那一份（不能和上面同名：窗口那一份是 findViewWithTag(TAG) 找的）
     // 沿条方向的各段按比例分配总长（设置页的「长」）：当前音量 44 : 间隔 8 : 一组 81 : 间隔 8 : 一组 81 = 222，默认长度 222 dp 时就是原来的尺寸
     private static final float VAL_W = 44f, SEP_W = 8f, PAIR_W = 81f;
     private static final int GAP_DP = 1;     // 同一组加减键之间的缝
@@ -80,16 +84,15 @@ final class VolPanel {
         }
         if (old instanceof Bar) {
             Bar ob = (Bar) old;
-            if (ob.step == Math.max(1, Math.min(100, DanmakuHook.cfg.volStep)) && ob.horiz == DanmakuHook.cfg.volHoriz
-                    && ob.wDp == DanmakuHook.cfg.volW && ob.lDp == DanmakuHook.cfg.volL && ob.sameBlocks()) {
-                ((Bar) old).placeAndRefresh();
+            if (ob.sameConfig()) {
+                ob.placeAndRefresh();
                 BARS.put(decor, new WeakReference<>(ob));
                 applyFollow(decor, ob);
                 return;
             }
             decor.removeView(old); // 设置页改了步长 / 方向 / 大小 / 显示哪几块 / 当前音量放哪边：重建
         }
-        Bar bar = new Bar(decor.getContext());
+        Bar bar = new Bar(decor.getContext(), false);
         decor.addView(bar, new FrameLayout.LayoutParams(bar.barW(), bar.barH(), Gravity.TOP | Gravity.START));
         bar.placeAndRefresh();
         BARS.put(decor, new WeakReference<>(bar));
@@ -101,8 +104,8 @@ final class VolPanel {
     /** 一个「在显示」的来源：视频时长那一行，或直播间的一页（开播时间那块文字）。 */
     private static final class Src {
         boolean on;
-        /** 挂在窗口上（只有视频时长行会置真；直播间的来源一直是假）。挂着但 on 为假 = 被藏起来了（评论打开时视频页被抖音藏起来）。 */
-        boolean attached;
+        /** 直播间的来源（LiveHook 告诉的）；视频时长行是假。 */
+        boolean live;
         WeakReference<View> decor; // 它在哪个窗口里（Activity 的根）
     }
 
@@ -110,11 +113,15 @@ final class VolPanel {
     private static final WeakHashMap<View, Src> SRC = new WeakHashMap<>();
     /** Activity 的根 → 这个窗口里的浮窗。值也用弱引用：浮窗的父控件就是根，强引用会让键永远回收不了。 */
     private static final WeakHashMap<View, WeakReference<Bar>> BARS = new WeakHashMap<>();
+    /** 页面根 → 它里面的音量条（volUnderCmt）。值用弱引用：条的父控件就是根。只在主线程用。 */
+    private static final WeakHashMap<View, WeakReference<Bar>> PAGE_OF = new WeakHashMap<>();
+    /** 挂在窗口上的页面音量条 → 它在哪个窗口里；摘下就删。 */
+    private static final WeakHashMap<Bar, WeakReference<View>> PAGE_BARS = new WeakHashMap<>();
 
-    /** 视频时长行显示 / 隐藏 / 挂上 / 摘下（LineBg.Row 的回调）。 */
-    static void source(View v, boolean on, boolean attached) {
+    /** 视频时长行显示 / 隐藏（LineBg.Row 的回调；摘下时给假）。 */
+    static void source(View v, boolean on) {
         try {
-            set(v, on, attached);
+            set(v, on, false);
         } catch (Throwable ignored) {
         }
     }
@@ -122,23 +129,23 @@ final class VolPanel {
     /** 直播间这一页的开播时间文字显示 / 隐藏 / 撤掉（LiveHook 的 show / hide / dispose）。 */
     static void live(View root, boolean on) {
         try {
-            set(root, on, false);
+            set(root, on, true);
         } catch (Throwable ignored) {
         }
     }
 
-    private static void set(View key, boolean on, boolean attached) {
+    private static void set(View key, boolean on, boolean live) {
         Src s = SRC.get(key);
         if (s == null) {
-            if (!on && !attached) return; // 从没显示过、也没挂着又说隐藏：什么都不用做
+            if (!on) return; // 从没显示过又说隐藏：什么都不用做
             s = new Src();
+            s.live = live;
             SRC.put(key, s);
         }
-        View top = on || attached ? key.getRootView() : null; // 摘下时沿用上次记的窗口（父链可能已经断了）
+        View top = on ? key.getRootView() : null; // 隐藏 / 摘下时沿用上次记的窗口（父链可能已经断了）
         View old = s.decor == null ? null : s.decor.get();
-        if (s.on == on && s.attached == attached && (top == null || top == old)) return; // 没变
+        if (s.on == on && (top == null || top == old)) return; // 没变
         s.on = on;
-        s.attached = attached;
         if (top != null && top != old) s.decor = new WeakReference<>(top);
         View decor = top != null ? top : old;
         if (old != null && top != null && top != old) applyWindow(old); // 换窗口：旧窗口也要重算
@@ -151,30 +158,82 @@ final class VolPanel {
         if (bar != null) applyFollow(decor, bar);
     }
 
-    /** 关着「跟随显示」：一直显示；开着：这个窗口里有来源在显示才显示。 */
+    /**
+     * 窗口最上层这一份要不要显示：
+     * 「跟随显示」关着：一直显示；开着：这个窗口里有来源在显示才显示。
+     * 「让评论盖住音量条」开着、而且这个窗口里已经有页面里的音量条挂着：窗口这一份让位（直播间在显示时除外，直播间没有视频页的条）。
+     */
     private static void applyFollow(View decor, Bar bar) {
-        boolean any = anySource(decor);
-        boolean show = !DanmakuHook.cfg.volFollow || any;
-        if (show && !any && DanmakuHook.cfg.volHideCmt && hiddenRow(decor)) show = false; // 评论打开：时长行还挂着但被藏起来了，别的来源也没在显示
+        DanmakuConfig cf = DanmakuHook.cfg;
+        boolean show = !cf.volFollow || anySource(decor, false);
+        if (show && cf.volUnderCmt && pageBarIn(decor) && !anySource(decor, true)) show = false;
         int v = show ? View.VISIBLE : View.GONE;
         if (bar.getVisibility() != v) bar.setVisibility(v);
     }
 
-    /** 这个窗口里有挂着、但没在显示的视频时长行。 */
-    private static boolean hiddenRow(View decor) {
+    /** 这个窗口里有在显示的来源；liveOnly = 只看直播间的。 */
+    private static boolean anySource(View decor, boolean liveOnly) {
         for (Map.Entry<View, Src> e : SRC.entrySet()) {
             Src s = e.getValue();
-            if (s.attached && !s.on && s.decor != null && s.decor.get() == decor) return true;
+            if (s.on && (!liveOnly || s.live) && s.decor != null && s.decor.get() == decor) return true;
         }
         return false;
     }
 
-    private static boolean anySource(View decor) {
-        for (Map.Entry<View, Src> e : SRC.entrySet()) {
-            Src s = e.getValue();
-            if (s.on && s.decor != null && s.decor.get() == decor) return true;
+    private static boolean pageBarIn(View decor) {
+        for (WeakReference<View> w : PAGE_BARS.values()) {
+            if (w != null && w.get() == decor) return true;
         }
         return false;
+    }
+
+    /** 页面音量条挂上 / 摘下：窗口最上层那一份跟着重算。 */
+    private static void pageBar(Bar b, boolean attached) {
+        WeakReference<View> o = PAGE_BARS.get(b);
+        View oldDecor = o == null ? null : o.get();
+        View decor = attached ? b.getRootView() : oldDecor;
+        if (attached) PAGE_BARS.put(b, new WeakReference<>(decor));
+        else PAGE_BARS.remove(b);
+        if (decor != null) applyWindow(decor);
+    }
+
+    // ------------------------------------------------------------ 页面里的音量条（volUnderCmt）
+
+    /** 页面里要不要放音量条：总开关、「让评论盖住音量条」开着，且至少显示一块。PubHook 的 pub.bind 回调也靠它决定要不要往下走。 */
+    static boolean pageOn() {
+        DanmakuConfig cf = DanmakuHook.cfg;
+        return cf.volOn && cf.volUnderCmt && (cf.volShowVal || cf.volShowBig || cf.volShowOne);
+    }
+
+    /**
+     * 这一页的根（pub.bind 回调拿到的页面根）：开着就在根最后一个子控件的位置放一份音量条（有就只刷新位置和读数），关着就撤掉。主线程。
+     * 页面根不是 FrameLayout 就什么都不做。
+     */
+    static void page(View root) {
+        try {
+            if (!(root instanceof FrameLayout)) return;
+            FrameLayout g = (FrameLayout) root;
+            WeakReference<Bar> w = PAGE_OF.get(g);
+            Bar old = w == null ? null : w.get();
+            if (old != null && old.getParent() != g) old = null;
+            if (!pageOn()) {
+                if (old != null) g.removeView(old);
+                PAGE_OF.remove(g);
+                return;
+            }
+            if (old != null) {
+                if (old.sameConfig()) {
+                    old.placeAndRefresh();
+                    return;
+                }
+                g.removeView(old); // 设置页改了步长 / 方向 / 大小 / 显示哪几块：重建
+            }
+            Bar bar = new Bar(g.getContext(), true);
+            g.addView(bar, new FrameLayout.LayoutParams(bar.barW(), bar.barH(), Gravity.TOP | Gravity.START));
+            PAGE_OF.put(g, new WeakReference<>(bar));
+            bar.placeAndRefresh();
+        } catch (Throwable ignored) {
+        }
     }
 
     // ------------------------------------------------------------ 浮窗本体
@@ -185,6 +244,7 @@ final class VolPanel {
         private final int step, max;
         private final boolean horiz;
         private final boolean showVal, showBig, showOne;
+        private final boolean page; // 加在页面根里的那一份（窗口最上层的那一份是 false）
         private final int valPos; // 0 左 1 右 2 上 3 下（默认已按横放 / 竖放换算好）
         private final int pxW, pxH; // 整块浮窗的大小（px）
         private final int wDp, lDp; // 建的时候的宽 / 长（dp），设置页改了就重建
@@ -205,15 +265,16 @@ final class VolPanel {
             }
         };
 
-        Bar(final Context ctx) {
+        Bar(final Context ctx, boolean page) {
             super(ctx);
+            this.page = page;
             am = (AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
             max = Math.max(1, am.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
             step = Math.max(1, Math.min(100, DanmakuHook.cfg.volStep));
             horiz = DanmakuHook.cfg.volHoriz;
             wDp = Math.max(DanmakuConfig.VOL_W_MIN, Math.min(DanmakuConfig.VOL_W_MAX, DanmakuHook.cfg.volW));
             lDp = Math.max(DanmakuConfig.VOL_L_MIN, Math.min(DanmakuConfig.VOL_L_MAX, DanmakuHook.cfg.volL));
-            setTag(TAG);
+            setTag(page ? TAG_PAGE : TAG);
             DanmakuConfig cf = DanmakuHook.cfg;
             showVal = cf.volShowVal;
             showBig = cf.volShowBig;
@@ -292,6 +353,12 @@ final class VolPanel {
                 pxW = rootHoriz ? thick : len;
                 pxH = rootHoriz ? len : thick;
             }
+        }
+
+        /** 设置页里的步长 / 方向 / 大小 / 显示哪几块 / 当前音量放哪边，和建的时候一样吗（不一样就重建）。 */
+        boolean sameConfig() {
+            DanmakuConfig c = DanmakuHook.cfg;
+            return step == Math.max(1, Math.min(100, c.volStep)) && horiz == c.volHoriz && wDp == c.volW && lDp == c.volL && sameBlocks();
         }
 
         /** 设置页里「显示哪几块 / 当前音量放哪边」和建的时候一样吗（不一样就重建）。 */
@@ -484,6 +551,7 @@ final class VolPanel {
         @Override
         protected void onAttachedToWindow() {
             super.onAttachedToWindow();
+            if (page) pageBar(this, true);
             if (getWindowVisibility() == VISIBLE) register();
         }
 
@@ -498,6 +566,7 @@ final class VolPanel {
         @Override
         protected void onDetachedFromWindow() {
             unregister();
+            if (page) pageBar(this, false);
             super.onDetachedFromWindow();
         }
     }

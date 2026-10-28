@@ -23,6 +23,13 @@
 ## 使用
 设置页的内容按功能折叠成一个个分组（点标题展开，展开一个其他自动收起；有总开关的分组不用展开就能开关）。前提：LSPosed 里启用模块、作用域勾选抖音、强杀抖音重开；改完点底部「保存并应用」（需要 root），抖音回到前台即生效。不推送则用默认：开启 + 鲜艳随机。
 
+## 1.42.20：首页底部导航（首页 / 朋友 / 消息 / 我）也加液态玻璃
+
+- 用和顶部标签完全一样的玻璃（`TabGlass.ItemGlass` 每个按钮一块、整行一块），**同一套设置**（整行 / 每个标签的不透明度、底色、大小、间距都一起管），只多一个总开关「底部导航也加同样的玻璃」（`botGlass`，默认开）。
+- 依据 TextRec 40.9.0（textrec-tasks-20261028-093215）：底部导航 = `LinearLayout#root_view` 里 5 个 `homepage.tab.ui.bottom.BottomTab`（类名没混淆，各 216×122）；文字控件 `AntiBurnDuxTextView` 离 BottomTab 5 层；**选中 = 文字透明度 1.0，没选中 0.55 / 0.65**（切换有渐变）；底部按钮没有 `setContentDescription` 记录，不能像顶部标签那样靠它。
+- 新钩子 `tab.bottom`：`DuxTextView#setAlpha(float)`（TextRec 标「稳定」的通用控件方法）。回调里先比较类（`AntiBurnDuxTextView`）、再沿父级数 5 层认 `BottomTab`，对上了才给 BottomTab 挂背景 Drawable、给它的父级挂整行玻璃；没有定时器、没有扫描、没有反射，回调里不分配。设置没开时不挂这个钩子。新钩子已在 `HookGuard`（`TAB_BOTTOM` / `tab.bottom`）、`DanmakuHook.init` / `hookResume`、`MainActivity.HOOK_NAMES` 三处登记。
+- 没编译、没上机：① 冷启动时第一批 `setAlpha` 如果比钩子先到，要等下一次切底部的页才出玻璃；② 默认大小是按顶部标签估的，上机后可能要调；③ 整行玻璃超出 `root_view` 的部分靠 `LineBg.unclip` 关裁剪；④ 「+」那格算在整行里，它自己没有单独的玻璃；⑤ 所有 `DuxTextView` 改透明度都会进回调（第一行比较类就返回），要看耗电。
+
 ## 1.42.19：首页顶部标签行居中 + 标签文字可改颜色
 
 - 设置页「首页顶部标签」里加了三项：「标签行放在屏幕正中间」（`tabCenter`，默认开）、「未选中标签 文字颜色」（`tabTextColor`）、「选中标签 文字颜色」（`tabTextSelColor`），颜色默认 = 不改抖音原来的。

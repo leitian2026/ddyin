@@ -49,7 +49,7 @@ public class MainActivity extends Activity {
 
     private EditText etPkg, etIdle, etVolStep;
     /** 备份到坚果云：账号、应用密码、保留份数；两个按钮。 */
-    private EditText etDavUser, etDavPass, etDavKeep;
+    private EditText etDavUser, etDavPass, etDavKeep, etDavDir;
     private TextView btnBackup, btnRestore;
     private Switch swVol;
     private CheckBox cbVolHoriz, cbVolLock, cbVolFollow, cbVolVal, cbVolBig, cbVolOne;
@@ -513,6 +513,8 @@ public class MainActivity extends Activity {
         etDavPass.setHint("第三方应用密码");
         etDavPass.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         etDavPass.setText(dsp.getString("dav_pass", ""));
+        etDavDir = field();
+        etDavDir.setText(dsp.getString("dav_dir", Backup.DEFAULT_FOLDER));
         etDavKeep = field();
         etDavKeep.setInputType(InputType.TYPE_CLASS_NUMBER);
         etDavKeep.setText(dsp.getString("dav_keep", "10"));
@@ -527,11 +529,14 @@ public class MainActivity extends Activity {
         sBak.body.addView(sub("应用密码"));
         sBak.body.addView(note("不是登录密码：在坚果云网页「账户信息 → 安全选项 → 第三方应用管理」里添加应用，生成的那串密码。账号和密码只存在本机，不会写进备份文件。"));
         sBak.body.addView(etDavPass);
+        sBak.body.addView(sub("备份文件夹"));
+        sBak.body.addView(note("坚果云根目录下的文件夹名，默认 dyin，没有会自动创建。有多台手机时每台填不同的名字（如 dyin-手机A），恢复时也在这个文件夹里选。"));
+        sBak.body.addView(etDavDir);
         sBak.body.addView(sub("保留份数"));
         sBak.body.addView(note("坚果云里只留最近这么多份备份（1～100），更旧的在每次备份后删掉。"));
         sBak.body.addView(etDavKeep);
         sBak.body.addView(divider());
-        sBak.body.addView(note("备份内容：设置页的全部设置、目标包名、浮窗位置（抖音里拖出来的发布地 / 时长 / 直播数据 / 音量条位置）。放在坚果云的 dyin 文件夹里，文件名带时间。恢复时一切按备份里的值算。"));
+        sBak.body.addView(note("备份内容：设置页的全部设置、目标包名、浮窗位置（抖音里拖出来的发布地 / 时长 / 直播数据 / 音量条位置）。放在上面填的文件夹里，文件名带时间。恢复时一切按备份里的值算。"));
         btnBackup = pillButton("立即备份", true);
         btnBackup.setTextSize(16);
         btnBackup.setOnClickListener(v -> doBackup());
@@ -1060,6 +1065,7 @@ public class MainActivity extends Activity {
                 .putString("dav_user", etDavUser.getText().toString().trim())
                 .putString("dav_pass", etDavPass.getText().toString())
                 .putString("dav_keep", etDavKeep.getText().toString().trim())
+                .putString("dav_dir", etDavDir.getText().toString().trim())
                 .apply();
     }
 
@@ -1095,6 +1101,7 @@ public class MainActivity extends Activity {
             showStatus("保留份数要填 1～100 的整数", 2);
             return;
         }
+        final String folder = etDavDir.getText().toString().trim();
         final String cfgText = read().toText();
         final String pkgs = etPkg.getText().toString().trim();
         final List<String> list = DanmakuConfig.split(pkgs);
@@ -1112,7 +1119,7 @@ public class MainActivity extends Activity {
                 String name = "dyin-" + new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(now) + ".properties";
                 String time = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(now);
                 String text = Backup.build(cfgText, pkgs, m.posText(), ver, time);
-                msg = Backup.upload(dav, name, text, keep)
+                msg = Backup.upload(dav, folder, name, text, keep)
                         + (posFile != null ? "\n浮窗位置：取自抖音里的位置文件" : "\n没读到抖音里的位置文件（没 root 或没拖过），浮窗位置按设置页里的值备份，音量条位置按默认");
                 ok = true;
             } catch (Throwable t) {
@@ -1133,12 +1140,13 @@ public class MainActivity extends Activity {
     private void doRestore() {
         final Backup.Dav dav = davOrNull();
         if (dav == null) return;
+        final String folder = etDavDir.getText().toString().trim();
         setBusy(btnRestore, true, "正在读取备份列表…");
         new Thread(() -> {
             List<String> names = null;
             String err = null;
             try {
-                names = Backup.list(dav);
+                names = Backup.list(dav, folder);
             } catch (Throwable t) {
                 err = "✗ 读取备份列表失败：" + t.getMessage();
             }
@@ -1150,24 +1158,24 @@ public class MainActivity extends Activity {
                 if (ferr != null) {
                     showStatus(ferr, 2);
                 } else if (fn.isEmpty()) {
-                    showStatus("坚果云的 dyin 文件夹里还没有备份", 2);
+                    showStatus("坚果云的「" + folder + "」文件夹里还没有备份", 2);
                 } else {
                     final String[] items = fn.toArray(new String[0]);
                     new AlertDialog.Builder(this).setTitle("选择要恢复的备份（新的在上）")
-                            .setItems(items, (d, i) -> fetchBackup(dav, items[i]))
+                            .setItems(items, (d, i) -> fetchBackup(dav, folder, items[i]))
                             .setNegativeButton("取消", null).show();
                 }
             });
         }).start();
     }
 
-    private void fetchBackup(final Backup.Dav dav, final String name) {
+    private void fetchBackup(final Backup.Dav dav, final String folder, final String name) {
         setBusy(btnRestore, true, "正在下载…");
         new Thread(() -> {
             Backup.Parsed b = null;
             String err = null;
             try {
-                b = Backup.parse(Backup.download(dav, name));
+                b = Backup.parse(Backup.download(dav, folder, name));
             } catch (Throwable t) {
                 err = "✗ 下载 / 读取 " + name + " 失败：" + t.getMessage();
             }

@@ -51,7 +51,7 @@ import android.widget.TextView;
  * 关着这个开关：不往页面里加，已经加的在回到前台时撤掉，保持 1.44.0 之前的样子。
  *
  * 不是钩子：不挂任何方法，只在 Activity.onResume（DanmakuHook.hookResume 已经挂着的框架方法）里被调到；没有定时器、没有轮询，
- * 没有长按连发。广播接收器只在浮窗所在窗口可见时注册（切后台 / 离开窗口就注销），只认音乐流的变化、读数没变不刷新（也不重绘）；
+ * 没有长按连发。广播接收器全模块只有一个（所有音量条共用，LIVE_BARS 里有可见窗口的条才注册，一个都没有就注销），只认音乐流的变化、读数没变不刷新（也不重绘）；
  * 拖动时只改 translation（不触发整页重新布局），抬手才落到 margin。画笔 / 路径 / 背景都在创建时一次建好，onDraw 里不分配对象。
  * 全部用代码画（抖音进程里读不到模块的资源）。开关关掉或没开：回到前台时把已经加上的浮窗撤掉。
  * 位置（dp，左 / 上）单独存在 dyin_pos.properties 里，和别的位置一样不被设置页冲掉。
@@ -60,7 +60,7 @@ final class VolPanel {
     private VolPanel() {}
 
     private static final String TAG = "dyin_vol";           // 窗口最上层那一份
-    private static final String TAG_PAGE = "dyin_vol_page";   // 页面根里的那一份（不能和上面同名：窗口那一份是 findViewWithTag(TAG) 找的）
+    private static final String TAG_PAGE = "dyin_vol_page";   // 页面根里的那一份（和窗口那一份分开认）
     // 沿条方向的各段按比例分配总长（设置页的「长」）：当前音量 44 : 间隔 8 : 一组 81 : 间隔 8 : 一组 81 = 222，默认长度 222 dp 时就是原来的尺寸
     private static final float VAL_W = 44f, SEP_W = 8f, PAIR_W = 81f;
     private static final int GAP_DP = 1;     // 同一组加减键之间的缝
@@ -75,7 +75,9 @@ final class VolPanel {
         View top = a.getWindow().getDecorView();
         if (!(top instanceof FrameLayout)) return;
         FrameLayout decor = (FrameLayout) top;
-        View old = decor.findViewWithTag(TAG);
+        WeakReference<Bar> ow = BARS.get(decor); // 窗口那一份只会是这里登记过的；不再每次回到前台整棵树找一遍
+        View old = ow == null ? null : ow.get();
+        if (old != null && old.getParent() != decor) old = null;
         DanmakuConfig cf = DanmakuHook.cfg;
         if (!cf.volOn || !(cf.volShowVal || cf.volShowBig || cf.volShowOne)) { // 没开，或三块都关了：不要浮窗
             if (old != null && old.getParent() instanceof ViewGroup) ((ViewGroup) old.getParent()).removeView(old);
@@ -223,7 +225,7 @@ final class VolPanel {
             }
             if (old != null) {
                 if (old.sameConfig()) {
-                    old.placeAndRefresh();
+                    old.place();
                     return;
                 }
                 g.removeView(old); // 设置页改了步长 / 方向 / 大小 / 显示哪几块：重建
@@ -231,9 +233,58 @@ final class VolPanel {
             Bar bar = new Bar(g.getContext(), true);
             g.addView(bar, new FrameLayout.LayoutParams(bar.barW(), bar.barH(), Gravity.TOP | Gravity.START));
             PAGE_OF.put(g, new WeakReference<>(bar));
-            bar.placeAndRefresh();
+            bar.place(); // 读数在挂上窗口时 register 里刷新
         } catch (Throwable ignored) {
         }
+    }
+
+    // ------------------------------------------------------------ 音量广播（所有音量条共用一个接收器）
+
+    /** 窗口可见、正在听音量广播的音量条（窗口那一份 + 每个页面里的）。弱引用，主线程用。 */
+    private static final java.util.ArrayList<WeakReference<Bar>> LIVE_BARS = new java.util.ArrayList<>();
+    private static Context rcvCtx;
+    private static boolean rcvOn;
+
+    /** 只有一个接收器：N 个页面各注册一个会让每次音量变化唤醒 N 次、各查一次系统音量。 */
+    private static final BroadcastReceiver RECEIVER = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            try {
+                // 只认音乐流（别的流变了不用刷新）
+                if (intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_TYPE", -1) != AudioManager.STREAM_MUSIC) return;
+                for (int i = LIVE_BARS.size() - 1; i >= 0; i--) {
+                    Bar b = LIVE_BARS.get(i).get();
+                    if (b == null) LIVE_BARS.remove(i);
+                    else b.refresh();
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+    };
+
+    private static void addLive(Bar b) {
+        LIVE_BARS.add(new WeakReference<>(b));
+        if (rcvOn) return;
+        Context c = b.getContext().getApplicationContext();
+        IntentFilter f = new IntentFilter("android.media.VOLUME_CHANGED_ACTION");
+        if (Build.VERSION.SDK_INT >= 33) c.registerReceiver(RECEIVER, f, Context.RECEIVER_EXPORTED);
+        else c.registerReceiver(RECEIVER, f);
+        rcvCtx = c;
+        rcvOn = true;
+    }
+
+    private static void removeLive(Bar b) {
+        for (int i = LIVE_BARS.size() - 1; i >= 0; i--) {
+            Bar x = LIVE_BARS.get(i).get();
+            if (x == null || x == b) LIVE_BARS.remove(i);
+        }
+        if (!LIVE_BARS.isEmpty() || !rcvOn) return; // 还有音量条在听：接收器留着；没人了就注销（切后台 / 离开窗口不再被广播唤醒）
+        try {
+            rcvCtx.unregisterReceiver(RECEIVER);
+        } catch (Throwable ignored) {
+        }
+        rcvOn = false;
+        rcvCtx = null;
     }
 
     // ------------------------------------------------------------ 浮窗本体
@@ -250,20 +301,8 @@ final class VolPanel {
         private final int wDp, lDp; // 建的时候的宽 / 长（dp），设置页改了就重建
         private float downRawX, downRawY;
         private int startL, startT;
-        private boolean receiverOn;
+        private boolean receiverOn; // 已经登记进共享接收器（LIVE_BARS）
         private int shown = -1; // 当前显示的音量，没变就不刷新
-
-        private final BroadcastReceiver receiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                try {
-                    // 只认音乐流（别的流变了不用刷新）
-                    if (intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_TYPE", -1) != AudioManager.STREAM_MUSIC) return;
-                    refresh();
-                } catch (Throwable ignored) {
-                }
-            }
-        };
 
         Bar(final Context ctx, boolean page) {
             super(ctx);
@@ -467,6 +506,12 @@ final class VolPanel {
 
         /** 按配置里的位置（dp，左 / 上；-1 = 默认：靠右、偏上）摆好，并保证整块在窗口里。 */
         void placeAndRefresh() {
+            place();
+            refresh();
+        }
+
+        /** 只摆位置，不查系统音量（页面里的条每次翻页绑定都会来一次；读数靠广播和挂上窗口时的 register 保持最新）。 */
+        void place() {
             ViewGroup p = (ViewGroup) getParent();
             if (p == null) return;
             DanmakuConfig c = DanmakuHook.cfg;
@@ -476,7 +521,6 @@ final class VolPanel {
             int l = c.volX >= 0 ? dp(ctx, c.volX) : pw - barW() - dp(ctx, 8);
             int t = c.volY >= 0 ? dp(ctx, c.volY) : ph * 2 / 5;
             applyMargins(l, t, pw, ph);
-            refresh();
         }
 
         private int barW() {
@@ -491,8 +535,11 @@ final class VolPanel {
             FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) getLayoutParams();
             int w = getWidth() > 0 ? getWidth() : barW();
             int h = getHeight() > 0 ? getHeight() : barH();
-            lp.leftMargin = Math.max(0, Math.min(Math.max(0, pw - w), l));
-            lp.topMargin = Math.max(0, Math.min(Math.max(0, ph - h), t));
+            int nl = Math.max(0, Math.min(Math.max(0, pw - w), l));
+            int nt = Math.max(0, Math.min(Math.max(0, ph - h), t));
+            if (lp.leftMargin == nl && lp.topMargin == nt) return; // 没变就不动：setLayoutParams 会让整个页面根重新布局
+            lp.leftMargin = nl;
+            lp.topMargin = nt;
             setLayoutParams(lp);
         }
 
@@ -532,20 +579,15 @@ final class VolPanel {
 
         private void register() {
             if (receiverOn) return;
-            IntentFilter f = new IntentFilter("android.media.VOLUME_CHANGED_ACTION");
-            if (Build.VERSION.SDK_INT >= 33) getContext().registerReceiver(receiver, f, Context.RECEIVER_EXPORTED);
-            else getContext().registerReceiver(receiver, f);
             receiverOn = true;
+            addLive(this);
             refresh(); // 不可见期间可能变过
         }
 
         private void unregister() {
             if (!receiverOn) return;
-            try {
-                getContext().unregisterReceiver(receiver);
-            } catch (Throwable ignored) {
-            }
             receiverOn = false;
+            removeLive(this);
         }
 
         @Override

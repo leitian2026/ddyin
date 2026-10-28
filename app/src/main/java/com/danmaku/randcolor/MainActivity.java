@@ -71,6 +71,9 @@ public class MainActivity extends Activity {
     private int liveX = 3, liveY = 10;
     private PctField bgF, liftF, shF;
     private HalfDpField shRF, shDyF;
+    private PctField tabRowF, tabItemF, tabShF;
+    private ColorField tabRowColorF, tabItemColorF;
+    private HalfDpField tabShRF, tabShDyF;
     private ColorField bgColorF;
     private BlankField blankF;
     private Switch swBar;
@@ -330,6 +333,31 @@ public class MainActivity extends Activity {
             sTabs.body.addView(row);
         }
         place(sTabs);
+
+        tabRowF = new PctField(100);
+        tabItemF = new PctField(100);
+        tabShF = new PctField(65);
+        tabRowColorF = new ColorField("默认（偏白的中浅灰）", "选择整行玻璃底色");
+        tabItemColorF = new ColorField("默认（偏白的中浅灰）", "选择标签玻璃底色");
+        tabShRF = new HalfDpField(1, 10, 4);
+        tabShDyF = new HalfDpField(0, 10, 2);
+        Section sTabGlass = new Section("首页顶部标签液态玻璃", false, null, () -> "整行 " + (tabRowF.v == 0 ? "关" : tabRowF.v + "%") + " · 每个标签 " + (tabItemF.v == 0 ? "关" : tabItemF.v + "%"));
+        sTabGlass.body.addView(note("给首页顶部标签行（推荐、关注……）加两层液态玻璃：整行连在一起一层，每个标签自己再一层；画法和文字底条的玻璃一样。0% = 不画；不透明度和底色改了马上生效，字的投影要等标签行刷新（切一下页、或重启抖音）。"));
+        sTabGlass.body.addView(settingRow("整行 不透明度", tabRowF.build()));
+        sTabGlass.body.addView(rowLine());
+        sTabGlass.body.addView(tabRowColorF.row("整行 底色"));
+        sTabGlass.body.addView(rowLine());
+        sTabGlass.body.addView(settingRow("每个标签 不透明度", tabItemF.build()));
+        sTabGlass.body.addView(rowLine());
+        sTabGlass.body.addView(tabItemColorF.row("每个标签 底色"));
+        sTabGlass.body.addView(rowLine());
+        sTabGlass.body.addView(settingRow("标签字的投影不透明度", tabShF.build()));
+        sTabGlass.body.addView(rowLine());
+        sTabGlass.body.addView(settingRow("投影模糊半径", tabShRF.build()));
+        sTabGlass.body.addView(rowLine());
+        sTabGlass.body.addView(settingRow("投影下移", tabShDyF.build()));
+        sTabGlass.body.addView(note("标签字的黑色投影，含义同文字底条里的投影设置；0% = 不碰抖音自己的字投影。玻璃的大小是按截图估的（标签框四周缩进、整行两侧各多一点），上机后不合适告诉我再调。"));
+        place(sTabGlass);
 
         etIdle = field();
         etIdle.setInputType(InputType.TYPE_CLASS_NUMBER);
@@ -771,6 +799,13 @@ public class MainActivity extends Activity {
         updateLivePos();
         bgF.set(c.lineBg);
         shF.set(c.lineShadow);
+        tabRowF.set(c.tabRowBg);
+        tabRowColorF.set(c.tabRowColor);
+        tabItemF.set(c.tabItemBg);
+        tabItemColorF.set(c.tabItemColor);
+        tabShF.set(c.tabShadow);
+        tabShRF.set(c.tabShadowR);
+        tabShDyF.set(c.tabShadowDy);
         shRF.set(c.lineShadowR);
         shDyF.set(c.lineShadowDy);
         bgColorF.set(c.lineBgColor);
@@ -824,6 +859,13 @@ public class MainActivity extends Activity {
         c.liveColor = liveColorF.color;
         c.lineBg = bgF.v;
         c.lineShadow = shF.v;
+        c.tabRowBg = tabRowF.v;
+        c.tabRowColor = tabRowColorF.color;
+        c.tabItemBg = tabItemF.v;
+        c.tabItemColor = tabItemColorF.color;
+        c.tabShadow = tabShF.v;
+        c.tabShadowR = tabShRF.v;
+        c.tabShadowDy = tabShDyF.v;
         c.lineShadowR = shRF.v;
         c.lineShadowDy = shDyF.v;
         c.lineBgColor = bgColorF.color;

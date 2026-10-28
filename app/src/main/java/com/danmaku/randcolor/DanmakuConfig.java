@@ -54,6 +54,10 @@ public final class DanmakuConfig {
     public int tabRowBg = 100, tabRowColor = 0, tabItemBg = 100, tabItemColor = 0;
     /** 标签文字的投影（黑色）：不透明度 %、半径 / 下移（0.5dp 一档），含义同 lineShadow*。 */
     public int tabShadow = 65, tabShadowR = 4, tabShadowDy = 2;
+    /** 标签玻璃的大小：高 = 标签框高的百分比（20～100）；相邻两个标签玻璃之间的缝（0.5dp 一档，0～16dp，宽 = 标签框宽 − 缝）。 */
+    public int tabItemH = 60, tabGap = 12;
+    /** 整行玻璃比标签玻璃多出的：左右 / 上下（0.5dp 一档，0～20dp）。 */
+    public int tabRowPadX = 14, tabRowPadY = 12;
     /** 文字底条的填充颜色（0xAARRGGBB，不透明）；0 = 默认（白色，和音量块的底一样；1.42.17 前是近黑 #101010）。不透明度仍由 lineBg 管，描边始终白色。见 LineBg。 */
     public int lineBgColor = 0;
     /** 模块自己决定颜色的字（弹幕随机色）的最低亮度（0～100，%，每档 5）：比这暗的颜色往白色提亮；0 = 不提亮。见 LineBg.legible。 */
@@ -142,6 +146,10 @@ public final class DanmakuConfig {
             p.setProperty("tabShadow", String.valueOf(tabShadow));
             p.setProperty("tabShadowR", String.valueOf(tabShadowR));
             p.setProperty("tabShadowDy", String.valueOf(tabShadowDy));
+            p.setProperty("tabItemH", String.valueOf(tabItemH));
+            p.setProperty("tabGap", String.valueOf(tabGap));
+            p.setProperty("tabRowPadX", String.valueOf(tabRowPadX));
+            p.setProperty("tabRowPadY", String.valueOf(tabRowPadY));
             p.setProperty("lineBgColor", String.valueOf(lineBgColor));
             p.setProperty("textLift", String.valueOf(textLift));
             p.setProperty("blankH", String.valueOf(blankH));
@@ -275,6 +283,10 @@ public final class DanmakuConfig {
         c.tabShadow = parsePct(p.getProperty("tabShadow", "65"), 65);
         c.tabShadowR = Math.max(1, Math.min(10, parseIntOr(p.getProperty("tabShadowR", "4"), 4)));
         c.tabShadowDy = Math.max(0, Math.min(10, parseIntOr(p.getProperty("tabShadowDy", "2"), 2)));
+        c.tabItemH = Math.max(20, Math.min(100, parseIntOr(p.getProperty("tabItemH", "60"), 60)));
+        c.tabGap = Math.max(0, Math.min(32, parseIntOr(p.getProperty("tabGap", "12"), 12)));
+        c.tabRowPadX = Math.max(0, Math.min(40, parseIntOr(p.getProperty("tabRowPadX", "14"), 14)));
+        c.tabRowPadY = Math.max(0, Math.min(40, parseIntOr(p.getProperty("tabRowPadY", "12"), 12)));
         c.lineBgColor = parseColor(p.getProperty("lineBgColor", "0"));
         c.textLift = parsePct(p.getProperty("textLift", "30"), 30);
         c.blankH = Math.max(-1, Math.min(200, parseIntOr(p.getProperty("blankH", "-1"), -1)));

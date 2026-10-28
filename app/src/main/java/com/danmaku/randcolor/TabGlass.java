@@ -43,8 +43,11 @@ final class TabGlass {
         applySpread(item, Math.round(c.tabSpread * dpf(0.5f))); // 先撑开间距（标签框变宽），玻璃按新的框画
         // 文字的投影：每次回调都按当前设置刷新（LineBg.shadow 内部只在变了才重设）
         if (c.tabShadow > 0) shadowAll(item, c, 0); // 0% = 不碰抖音自己的字投影
-        if (c.tabRowBg <= 0 && c.tabItemBg <= 0) return;
-        if (item.getTag(TAG) == null && item.getBackground() == null) {
+        // 文字颜色：选中 / 未选中各一个，0 = 不碰抖音自己的
+        int tc = selected ? c.tabTextSelColor : c.tabTextColor;
+        if (tc != 0) colorAll(item, tc, 0);
+        boolean glass = c.tabRowBg > 0 || c.tabItemBg > 0;
+        if (glass && item.getTag(TAG) == null && item.getBackground() == null) {
             item.setTag(TAG, Boolean.TRUE);
             item.setBackground(new ItemGlass());
         }
@@ -60,11 +63,99 @@ final class TabGlass {
         ViewParent p3 = p2.getParent();
         if (!(p3 instanceof ViewGroup) || !STRIP_CLS.equals(p3.getClass().getSimpleName())) return;
         ViewGroup strip = (ViewGroup) p3;
-        if (strip.getTag(TAG) == null && strip.getBackground() == null) {
+        if (glass && strip.getTag(TAG) == null && strip.getBackground() == null) {
             strip.setTag(TAG, Boolean.TRUE);
             strip.setBackground(new RowGlass((ViewGroup) p1, (ViewGroup) p2));
             LineBg.unclip(strip); // 整行的玻璃比标签行大一圈（含柔边），关掉上面几层的裁剪才画得完整
         }
+        hookCenter((ViewGroup) p1, (ViewGroup) p2, strip);
+    }
+
+    private static final int CENTER_TAG = 0x7e0b0c09, SHIFT_TAG = 0x7e0b0c0a;
+    private static final int[] LOC = new int[2]; // 主线程用，复用
+
+    /** 挂在标签行（MainTabRelativeLayout）上的布局监听：行每次重新布局（隐藏 / 显示标签、标签宽度变）之后重新居中。 */
+    private static final class Centerer implements View.OnLayoutChangeListener {
+        final ViewGroup row, scroll, strip;
+
+        Centerer(ViewGroup row, ViewGroup scroll, ViewGroup strip) {
+            this.row = row;
+            this.scroll = scroll;
+            this.strip = strip;
+        }
+
+        @Override
+        public void onLayoutChange(View v, int l, int t, int r, int b, int ol, int ot, int or, int ob) {
+            try {
+                center(row, scroll, strip);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /**
+     * 标签行居中（设置 tabCenter）。做法：只改 MainTabStripNew 的 translationX，不改布局参数、不新增钩子、没有定时器。
+     * 把「当前看得见的标签」的左右外沿并起来（和 RowGlass 同一套算法），把它的中点平移到窗口宽度的一半。
+     * 什么时候算：标签行（MainTabRelativeLayout）上挂一个 OnLayoutChangeListener，行每次布局完算一次（隐藏标签后会重新布局）；
+     * attach 里布局已经完成时也算一次。attach 时布局还在排队（isLayoutRequested）就不算，等监听来算。
+     * 没追踪过的（上机看）：① MainTabStripNew 平移后它的触摸范围会跟着移，如果它比标签行宽很多、盖到右上角搜索按钮上，搜索按钮可能点不到；
+     * ② 抖音有没有在别处自己设过这个控件的 translationX；③ 标签多到超出横向滚动容器时，只把看得见的那一段居中。
+     * 关掉 tabCenter 后，下一次布局时把平移还原成 0（只还原我们设过的）。
+     */
+    private static void hookCenter(ViewGroup row, ViewGroup scroll, ViewGroup strip) {
+        DanmakuConfig c = DanmakuHook.cfg;
+        if (row.getTag(CENTER_TAG) == null) {
+            if (!c.tabCenter) return; // 没开过：什么都不碰
+            row.setTag(CENTER_TAG, Boolean.TRUE);
+            row.addOnLayoutChangeListener(new Centerer(row, scroll, strip)); // 每个标签行只挂一次
+            LineBg.unclip(strip); // 平移后可能超出原来的位置，关掉上面几层的裁剪
+        }
+        if (row.isLaidOut() && !row.isLayoutRequested()) center(row, scroll, strip);
+    }
+
+    private static void center(ViewGroup row, ViewGroup scroll, ViewGroup strip) {
+        DanmakuConfig c = DanmakuHook.cfg;
+        float tx = strip.getTranslationX();
+        if (!c.tabCenter) {
+            if (strip.getTag(SHIFT_TAG) != null) { // 我们平移过：还原
+                strip.setTag(SHIFT_TAG, null);
+                strip.setTranslationX(0f);
+            }
+            return;
+        }
+        Class<?> k = TabHook.itemClass();
+        if (k == null) return;
+        int sl = scroll.getLeft(), sr = scroll.getRight(), sx = scroll.getScrollX();
+        int ox = row.getLeft() - sx + sl; // 标签在 strip 坐标里的横向偏移（同 RowGlass）
+        float L = Float.MAX_VALUE, R = -Float.MAX_VALUE;
+        for (int i = 0, n = row.getChildCount(); i < n; i++) {
+            View v = row.getChildAt(i);
+            if (!k.isInstance(v) || v.getVisibility() != View.VISIBLE) continue;
+            float x1 = Math.max(v.getLeft() + ox, sl), x2 = Math.min(v.getRight() + ox, sr);
+            if (x2 <= x1) continue; // 划出看得见的范围了
+            L = Math.min(L, x1);
+            R = Math.max(R, x2);
+        }
+        if (R <= L) return;
+        int w = strip.getRootView().getWidth();
+        if (w <= 0) return;
+        strip.getLocationInWindow(LOC); // 含 strip 现在的 translationX
+        float now = LOC[0] + (L + R) / 2f;
+        float nt = tx + (w / 2f - now);
+        if (Math.abs(nt - tx) < 0.5f) return;
+        strip.setTag(SHIFT_TAG, Boolean.TRUE);
+        strip.setTranslationX(nt);
+    }
+
+    /** v 自己和往下 3 层里所有有文字的 TextView 设同一个文字颜色（只在颜色不一样时才设）。 */
+    private static void colorAll(View v, int color, int depth) {
+        if (v instanceof TextView) {
+            TextView t = (TextView) v;
+            if (t.getText().length() > 0 && t.getCurrentTextColor() != color) t.setTextColor(color);
+        }
+        if (depth >= 3 || !(v instanceof ViewGroup)) return;
+        ViewGroup g = (ViewGroup) v;
+        for (int i = 0, n = g.getChildCount(); i < n; i++) colorAll(g.getChildAt(i), color, depth + 1);
     }
 
     private static final int SPREAD_TAG = 0x7e0b0c08;

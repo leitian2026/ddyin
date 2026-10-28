@@ -31,7 +31,7 @@ import javax.net.ssl.SSLSocketFactory;
  */
 final class Backup {
     static final String HOST = "dav.jianguoyun.com";
-    static final String DIR = "/dav/dyin/";
+    static final String DEFAULT_FOLDER = "dyin";
     static final String FORMAT = "1";
     private static final Pattern NAME = Pattern.compile("dyin-\\d{8}-\\d{6}\\.properties");
 
@@ -97,14 +97,27 @@ final class Backup {
 
     // ------------------------------------------------------------ 上传 / 列表 / 下载
 
+    /** 坚果云里的备份文件夹（根目录下的一级文件夹，多台手机各用各的名字）→ WebDAV 路径 /dav/&lt;名字&gt;/。名字不合法就报错，不改写。 */
+    static String dir(String folder) throws IOException {
+        String f = folder == null ? "" : folder.trim();
+        if (f.isEmpty()) throw new IOException("文件夹名不能为空");
+        if (f.equals(".") || f.equals("..") || f.matches(".*[/\\\\:*?\"<>|\\p{Cntrl}].*")) throw new IOException("文件夹名不合法（不能含 / \\ : * ? \" < > | 和控制字符，不能是 . 或 ..）：" + f);
+        try {
+            return "/dav/" + java.net.URLEncoder.encode(f, "UTF-8").replace("+", "%20") + "/";
+        } catch (java.io.UnsupportedEncodingException e) {
+            throw new IOException(e.getMessage());
+        }
+    }
+
     /** 上传一份新备份，再把超出 keep 份的旧备份删掉。返回给界面显示的结果（失败抛 IOException）。 */
-    static String upload(Dav dav, String name, String text, int keep) throws IOException {
+    static String upload(Dav dav, String folder, String name, String text, int keep) throws IOException {
+        final String DIR = dir(folder);
         Dav.Resp r = dav.req("MKCOL", DIR, null);
-        if (r.code != 201 && r.code != 405) throw fail("创建备份文件夹", r); // 405 = 文件夹已经在
+        if (r.code != 201 && r.code != 405) throw fail("创建备份文件夹 " + folder, r); // 405 = 文件夹已经在
         r = dav.req("PUT", DIR + name, text.getBytes(StandardCharsets.ISO_8859_1));
         if (r.code != 200 && r.code != 201 && r.code != 204) throw fail("上传", r);
         StringBuilder sb = new StringBuilder("✓ 已上传 ").append(name);
-        List<String> names = list(dav);
+        List<String> names = list(dav, folder);
         int del = 0;
         for (int i = keep; i < names.size(); i++) {
             Dav.Resp d = dav.req("DELETE", DIR + names.get(i), null);
@@ -116,7 +129,8 @@ final class Backup {
     }
 
     /** 坚果云里的备份文件名，新的在前。 */
-    static List<String> list(Dav dav) throws IOException {
+    static List<String> list(Dav dav, String folder) throws IOException {
+        final String DIR = dir(folder);
         Dav.Resp r = dav.req("PROPFIND", DIR, "<?xml version=\"1.0\" encoding=\"utf-8\"?><d:propfind xmlns:d=\"DAV:\"><d:prop><d:getlastmodified/></d:prop></d:propfind>".getBytes(StandardCharsets.UTF_8), "Depth: 1", "Content-Type: application/xml");
         if (r.code == 404) return new ArrayList<>(); // 还没备份过，文件夹都没有
         if (r.code != 207) throw fail("列出备份", r);
@@ -137,7 +151,8 @@ final class Backup {
         return out;
     }
 
-    static String download(Dav dav, String name) throws IOException {
+    static String download(Dav dav, String folder, String name) throws IOException {
+        final String DIR = dir(folder);
         if (!NAME.matcher(name).matches()) throw new IOException("备份文件名不对：" + name);
         Dav.Resp r = dav.req("GET", DIR + name, null);
         if (r.code != 200) throw fail("下载", r);

@@ -43,6 +43,10 @@ import android.widget.TextView;
  * 跟随显示（volFollow，默认关）：开着时只有这个窗口里有视频时长行（LineBg.Row.follow，显示 / 隐藏 / 挂上 / 摘下由 View 自己的回调告诉这里）
  * 或直播间的开播时间文字（LiveHook 的 show / hide / dispose 告诉这里）在显示，浮窗才显示，都没有就 GONE；不加钩子、不轮询、不扫控件。
  *
+ * 评论打开时隐藏（volHideCmt，默认开，1.44.0）：这个窗口里有视频时长行挂着、但它被藏起来了（评论打开时抖音把视频页藏起来，时长行跟着不显示），
+ * 而且没有别的来源在显示，浮窗就 GONE；评论关了时长行回来就恢复。没有时长行的页面照常显示。用的还是上面那几个 View 自带的回调，不加钩子；
+ * 「评论打开 → 视频页被藏 → 时长行 isShown 变假」是按「评论打开时视频时长不显示」推的，没有 TextRec 证据；预加载的邻页如果也挂着一行而且 isShown 为真，浮窗就不会藏。
+ *
  * 不是钩子：不挂任何方法，只在 Activity.onResume（DanmakuHook.hookResume 已经挂着的框架方法）里被调到；没有定时器、没有轮询，
  * 没有长按连发。广播接收器只在浮窗所在窗口可见时注册（切后台 / 离开窗口就注销），只认音乐流的变化、读数没变不刷新（也不重绘）；
  * 拖动时只改 translation（不触发整页重新布局），抬手才落到 margin。画笔 / 路径 / 背景都在创建时一次建好，onDraw 里不分配对象。
@@ -97,6 +101,8 @@ final class VolPanel {
     /** 一个「在显示」的来源：视频时长那一行，或直播间的一页（开播时间那块文字）。 */
     private static final class Src {
         boolean on;
+        /** 挂在窗口上（只有视频时长行会置真；直播间的来源一直是假）。挂着但 on 为假 = 被藏起来了（评论打开时视频页被抖音藏起来）。 */
+        boolean attached;
         WeakReference<View> decor; // 它在哪个窗口里（Activity 的根）
     }
 
@@ -106,9 +112,9 @@ final class VolPanel {
     private static final WeakHashMap<View, WeakReference<Bar>> BARS = new WeakHashMap<>();
 
     /** 视频时长行显示 / 隐藏 / 挂上 / 摘下（LineBg.Row 的回调）。 */
-    static void source(View v, boolean on) {
+    static void source(View v, boolean on, boolean attached) {
         try {
-            set(v, on);
+            set(v, on, attached);
         } catch (Throwable ignored) {
         }
     }
@@ -116,22 +122,23 @@ final class VolPanel {
     /** 直播间这一页的开播时间文字显示 / 隐藏 / 撤掉（LiveHook 的 show / hide / dispose）。 */
     static void live(View root, boolean on) {
         try {
-            set(root, on);
+            set(root, on, false);
         } catch (Throwable ignored) {
         }
     }
 
-    private static void set(View key, boolean on) {
+    private static void set(View key, boolean on, boolean attached) {
         Src s = SRC.get(key);
         if (s == null) {
-            if (!on) return; // 从没显示过又说隐藏：什么都不用做
+            if (!on && !attached) return; // 从没显示过、也没挂着又说隐藏：什么都不用做
             s = new Src();
             SRC.put(key, s);
         }
-        View top = on ? key.getRootView() : null; // 隐藏时沿用上次记的窗口（摘下时父链可能已经断了）
+        View top = on || attached ? key.getRootView() : null; // 摘下时沿用上次记的窗口（父链可能已经断了）
         View old = s.decor == null ? null : s.decor.get();
-        if (s.on == on && (top == null || top == old)) return; // 没变
+        if (s.on == on && s.attached == attached && (top == null || top == old)) return; // 没变
         s.on = on;
+        s.attached = attached;
         if (top != null && top != old) s.decor = new WeakReference<>(top);
         View decor = top != null ? top : old;
         if (old != null && top != null && top != old) applyWindow(old); // 换窗口：旧窗口也要重算
@@ -146,9 +153,20 @@ final class VolPanel {
 
     /** 关着「跟随显示」：一直显示；开着：这个窗口里有来源在显示才显示。 */
     private static void applyFollow(View decor, Bar bar) {
-        boolean show = !DanmakuHook.cfg.volFollow || anySource(decor);
+        boolean any = anySource(decor);
+        boolean show = !DanmakuHook.cfg.volFollow || any;
+        if (show && !any && DanmakuHook.cfg.volHideCmt && hiddenRow(decor)) show = false; // 评论打开：时长行还挂着但被藏起来了，别的来源也没在显示
         int v = show ? View.VISIBLE : View.GONE;
         if (bar.getVisibility() != v) bar.setVisibility(v);
+    }
+
+    /** 这个窗口里有挂着、但没在显示的视频时长行。 */
+    private static boolean hiddenRow(View decor) {
+        for (Map.Entry<View, Src> e : SRC.entrySet()) {
+            Src s = e.getValue();
+            if (s.attached && !s.on && s.decor != null && s.decor.get() == decor) return true;
+        }
+        return false;
     }
 
     private static boolean anySource(View decor) {

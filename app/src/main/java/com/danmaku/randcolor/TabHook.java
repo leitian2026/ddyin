@@ -81,7 +81,7 @@ final class TabHook {
                 Object o = p.thisObject;
                 Class<?> k = itemCls;
                 if (k == null || !k.isInstance(o)) return;
-                if (glass) TabGlass.attach((View) o); // 两层玻璃 + 标签文字投影
+                if (glass) TabGlass.attach((View) o, p.args[0] != null && p.args[0].toString().contains("已选中")); // 两层玻璃 + 标签文字投影；描述形如「推荐，已选中，按钮」
                 if (hide.length == 0 || p.args[0] == null) return;
                 String s = p.args[0].toString(); // 字符串本身，不分配
                 int n = s.length();

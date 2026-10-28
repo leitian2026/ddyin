@@ -40,6 +40,7 @@ final class TabGlass {
     /** TabHook 的 setContentDescription 回调里调：item 已经确认是 HomeTopTabItemViewNew；selected = 描述里有「已选中」（TextRec：「推荐，已选中，按钮」）。 */
     static void attach(View item, boolean selected) {
         DanmakuConfig c = DanmakuHook.cfg;
+        applySpread(item, Math.round(c.tabSpread * dpf(0.5f))); // 先撑开间距（标签框变宽），玻璃按新的框画
         // 文字的投影：每次回调都按当前设置刷新（LineBg.shadow 内部只在变了才重设）
         if (c.tabShadow > 0) shadowAll(item, c, 0); // 0% = 不碰抖音自己的字投影
         if (c.tabRowBg <= 0 && c.tabItemBg <= 0) return;
@@ -64,6 +65,64 @@ final class TabGlass {
             strip.setBackground(new RowGlass((ViewGroup) p1, (ViewGroup) p2));
             LineBg.unclip(strip); // 整行的玻璃比标签行大一圈（含柔边），关掉上面几层的裁剪才画得完整
         }
+    }
+
+    private static final int SPREAD_TAG = 0x7e0b0c08;
+
+    /** 记下抖音原来的布局参数和我们设过的值：抖音自己又改了的（现在的值不是我们设的）就把现在的当作新的原值。 */
+    private static final class Spread {
+        int w, ml, mr, applW, applMl, applMr;
+    }
+
+    /**
+     * 撑开标签文字之间的距离（设置 tabSpread，px = 0.5dp 一档）。依据（TextRec 40.9.0，textrec-tasks-20261028-085358，点击视图树）：
+     * 标签 HomeTopTabItemViewNew 114×110，布局参数宽度写死 114；里面的文字控件 AntiBurnDuxTextView 80×54，布局参数左右外边距各 17（80 + 17 × 2 = 114）；
+     * 标签一个挨一个排；任务期间（切关注 / 切回推荐 / 左右划）item 的 setPadding / setLayoutParams / requestLayout 都没被调用过（钩点可用、0 次命中）。
+     * 做法：只改布局参数、不改任何方法——标签框宽度 = 原值 + extra，文字左右外边距各加 extra 的一半（文字仍居中）。每次都按「原值 + extra」设（不累加）；extra = 0 就还原。
+     * 标签里的文字控件按类型找：直接子控件里第一个有文字的 TextView；找不到、布局参数不是带外边距的类型就安静跳过。
+     * 没追踪过的：标签里另外 4 个子控件是什么、要不要跟着挪，横向滚动容器的宽度是写死还是按内容，抖音在别的场景（换主题 / 标签数变化）会不会重设布局参数；上机看。
+     */
+    private static void applySpread(View item, int extra) {
+        Spread s = (Spread) item.getTag(SPREAD_TAG);
+        if (extra <= 0 && s == null) return; // 没开过：什么都不碰
+        ViewGroup.LayoutParams lp = item.getLayoutParams();
+        TextView tv = textOf(item);
+        if (lp == null || tv == null || !(tv.getLayoutParams() instanceof ViewGroup.MarginLayoutParams)) return;
+        ViewGroup.MarginLayoutParams m = (ViewGroup.MarginLayoutParams) tv.getLayoutParams();
+        if (s == null) {
+            s = new Spread();
+            s.w = s.applW = lp.width;
+            s.ml = s.applMl = m.leftMargin;
+            s.mr = s.applMr = m.rightMargin;
+            item.setTag(SPREAD_TAG, s);
+        } else {
+            if (lp.width != s.applW) s.w = lp.width; // 抖音自己改过：现在的就是新的原值
+            if (m.leftMargin != s.applMl) s.ml = m.leftMargin;
+            if (m.rightMargin != s.applMr) s.mr = m.rightMargin;
+        }
+        int half = extra / 2;
+        int nw = s.w >= 0 ? s.w + extra : s.w; // 写死宽度才加宽；按内容的靠外边距自己撑
+        int nl = s.ml + half, nr = s.mr + (extra - half);
+        s.applW = nw;
+        s.applMl = nl;
+        s.applMr = nr;
+        if (nw == lp.width && nl == m.leftMargin && nr == m.rightMargin) return;
+        lp.width = nw;
+        m.leftMargin = nl;
+        m.rightMargin = nr;
+        item.setLayoutParams(lp);
+        tv.setLayoutParams(m);
+    }
+
+    /** 标签里的文字控件：直接子控件里第一个有文字的 TextView。 */
+    private static TextView textOf(View item) {
+        if (!(item instanceof ViewGroup)) return null;
+        ViewGroup g = (ViewGroup) item;
+        for (int i = 0, n = g.getChildCount(); i < n; i++) {
+            View v = g.getChildAt(i);
+            if (v instanceof TextView && ((TextView) v).getText().length() > 0) return (TextView) v;
+        }
+        return null;
     }
 
     /** v 自己和往下 3 层里的所有 TextView 设标签文字的投影。 */

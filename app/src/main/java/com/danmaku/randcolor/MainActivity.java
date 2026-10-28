@@ -48,6 +48,9 @@ public class MainActivity extends Activity {
     private int cBg, cCard, cStroke, cText, cSub, cPrimary, cPrimarySoft, cField, cInset;
 
     private EditText etPkg, etIdle, etVolStep;
+    /** 备份到坚果云：账号、应用密码、保留份数；两个按钮。 */
+    private EditText etDavUser, etDavPass, etDavKeep;
+    private TextView btnBackup, btnRestore;
     private Switch swVol;
     private CheckBox cbVolHoriz, cbVolLock, cbVolFollow, cbVolVal, cbVolBig, cbVolOne;
     private LinearLayout segVolPos;
@@ -500,6 +503,46 @@ public class MainActivity extends Activity {
         btnHooks.setOnClickListener(v -> checkHooks());
         sAdv.body.addView(btnHooks, new LinearLayout.LayoutParams(-1, dp(48)));
         place(sAdv);
+
+        SharedPreferences dsp = getSharedPreferences(PREFS, MODE_PRIVATE);
+        etDavUser = field();
+        etDavUser.setHint("坚果云账号（邮箱）");
+        etDavUser.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        etDavUser.setText(dsp.getString("dav_user", ""));
+        etDavPass = field();
+        etDavPass.setHint("第三方应用密码");
+        etDavPass.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        etDavPass.setText(dsp.getString("dav_pass", ""));
+        etDavKeep = field();
+        etDavKeep.setInputType(InputType.TYPE_CLASS_NUMBER);
+        etDavKeep.setText(dsp.getString("dav_keep", "10"));
+        watch(etDavUser);
+        Section sBak = new Section("备份到坚果云", false, null, () -> {
+            String u = etDavUser.getText().toString().trim();
+            return u.isEmpty() ? "未设置账号" : u;
+        });
+        sBak.body.addView(sub("账号"));
+        sBak.body.addView(note("坚果云登录用的邮箱。"));
+        sBak.body.addView(etDavUser);
+        sBak.body.addView(sub("应用密码"));
+        sBak.body.addView(note("不是登录密码：在坚果云网页「账户信息 → 安全选项 → 第三方应用管理」里添加应用，生成的那串密码。账号和密码只存在本机，不会写进备份文件。"));
+        sBak.body.addView(etDavPass);
+        sBak.body.addView(sub("保留份数"));
+        sBak.body.addView(note("坚果云里只留最近这么多份备份（1～100），更旧的在每次备份后删掉。"));
+        sBak.body.addView(etDavKeep);
+        sBak.body.addView(divider());
+        sBak.body.addView(note("备份内容：设置页的全部设置、目标包名、浮窗位置（抖音里拖出来的发布地 / 时长 / 直播数据 / 音量条位置）。放在坚果云的 dyin 文件夹里，文件名带时间。恢复时一切按备份里的值算。"));
+        btnBackup = pillButton("立即备份", true);
+        btnBackup.setTextSize(16);
+        btnBackup.setOnClickListener(v -> doBackup());
+        sBak.body.addView(btnBackup, new LinearLayout.LayoutParams(-1, dp(48)));
+        btnRestore = pillButton("从坚果云恢复", false);
+        btnRestore.setTextSize(16);
+        btnRestore.setOnClickListener(v -> doRestore());
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(-1, dp(48));
+        rlp.topMargin = dp(8);
+        sBak.body.addView(btnRestore, rlp);
+        place(sBak);
 
         // ---- 状态（有内容才显示）
         statusCard = new LinearLayout(this);
@@ -1006,6 +1049,206 @@ public class MainActivity extends Activity {
                         showStatus(sb + "\n没找到可以打开的 " + list.get(0) + "，请手动打开抖音进直播间。", 2);
                     }
                 }
+            });
+        }).start();
+    }
+
+    // ------------------------------------------------------------ 备份到坚果云
+
+    private void saveDav() {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putString("dav_user", etDavUser.getText().toString().trim())
+                .putString("dav_pass", etDavPass.getText().toString())
+                .putString("dav_keep", etDavKeep.getText().toString().trim())
+                .apply();
+    }
+
+    /** 账号 / 密码没填就提示并返回 null。 */
+    private Backup.Dav davOrNull() {
+        saveDav();
+        String u = etDavUser.getText().toString().trim();
+        String p = etDavPass.getText().toString();
+        if (u.isEmpty() || p.isEmpty()) {
+            showStatus("请先填坚果云账号和第三方应用密码", 2);
+            return null;
+        }
+        return Backup.Dav.jianguoyun(u, p);
+    }
+
+    private String myVersion() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Throwable t) {
+            return "?";
+        }
+    }
+
+    /** 立即备份：设置页当前的全部设置 + 包名 + 浮窗位置（用 root 读抖音里的位置文件；读不到就按设置页里的值）。 */
+    private void doBackup() {
+        final Backup.Dav dav = davOrNull();
+        if (dav == null) return;
+        final int keep;
+        try {
+            keep = Integer.parseInt(etDavKeep.getText().toString().trim());
+            if (keep < 1 || keep > 100) throw new NumberFormatException();
+        } catch (NumberFormatException e) {
+            showStatus("保留份数要填 1～100 的整数", 2);
+            return;
+        }
+        final String cfgText = read().toText();
+        final String pkgs = etPkg.getText().toString().trim();
+        final List<String> list = DanmakuConfig.split(pkgs);
+        final String ver = myVersion();
+        setBusy(btnBackup, true, "正在备份…");
+        showStatus("正在备份…（读抖音里的位置文件要 root 授权）", 0);
+        new Thread(() -> {
+            String msg;
+            boolean ok;
+            try {
+                String posFile = list.isEmpty() || !RootShell.validPkg(list.get(0)) ? null : RootShell.readFile(list.get(0), "dyin_pos.properties");
+                DanmakuConfig m = DanmakuConfig.fromText(cfgText);
+                if (posFile != null) DanmakuConfig.applyPosText(m, posFile);
+                java.util.Date now = new java.util.Date();
+                String name = "dyin-" + new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(now) + ".properties";
+                String time = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(now);
+                String text = Backup.build(cfgText, pkgs, m.posText(), ver, time);
+                msg = Backup.upload(dav, name, text, keep)
+                        + (posFile != null ? "\n浮窗位置：取自抖音里的位置文件" : "\n没读到抖音里的位置文件（没 root 或没拖过），浮窗位置按设置页里的值备份，音量条位置按默认");
+                ok = true;
+            } catch (Throwable t) {
+                msg = "✗ 备份失败：" + t.getMessage();
+                ok = false;
+            }
+            final String fm = msg;
+            final boolean fok = ok;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                setBusy(btnBackup, false, "立即备份");
+                showStatus(fm, fok ? 1 : 2);
+            });
+        }).start();
+    }
+
+    /** 从坚果云恢复：先列出备份让你选，再选「全部恢复 / 不含位置」。 */
+    private void doRestore() {
+        final Backup.Dav dav = davOrNull();
+        if (dav == null) return;
+        setBusy(btnRestore, true, "正在读取备份列表…");
+        new Thread(() -> {
+            List<String> names = null;
+            String err = null;
+            try {
+                names = Backup.list(dav);
+            } catch (Throwable t) {
+                err = "✗ 读取备份列表失败：" + t.getMessage();
+            }
+            final List<String> fn = names;
+            final String ferr = err;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                setBusy(btnRestore, false, "从坚果云恢复");
+                if (ferr != null) {
+                    showStatus(ferr, 2);
+                } else if (fn.isEmpty()) {
+                    showStatus("坚果云的 dyin 文件夹里还没有备份", 2);
+                } else {
+                    final String[] items = fn.toArray(new String[0]);
+                    new AlertDialog.Builder(this).setTitle("选择要恢复的备份（新的在上）")
+                            .setItems(items, (d, i) -> fetchBackup(dav, items[i]))
+                            .setNegativeButton("取消", null).show();
+                }
+            });
+        }).start();
+    }
+
+    private void fetchBackup(final Backup.Dav dav, final String name) {
+        setBusy(btnRestore, true, "正在下载…");
+        new Thread(() -> {
+            Backup.Parsed b = null;
+            String err = null;
+            try {
+                b = Backup.parse(Backup.download(dav, name));
+            } catch (Throwable t) {
+                err = "✗ 下载 / 读取 " + name + " 失败：" + t.getMessage();
+            }
+            final Backup.Parsed fb = b;
+            final String ferr = err;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                setBusy(btnRestore, false, "从坚果云恢复");
+                if (ferr != null) {
+                    showStatus(ferr, 2);
+                    return;
+                }
+                new AlertDialog.Builder(this).setTitle("恢复 " + name)
+                        .setMessage("备份时间：" + fb.time + "\n备份时模块版本：" + fb.version + "（现在是 " + myVersion() + "）\n包名：" + fb.pkgs
+                                + "\n\n恢复会用备份里的值覆盖现在设置页的全部设置，并推送给抖音。")
+                        .setPositiveButton("全部恢复（含位置）", (d, w) -> applyBackup(fb, true))
+                        .setNeutralButton("不含位置", (d, w) -> applyBackup(fb, false))
+                        .setNegativeButton("取消", null).show();
+            });
+        }).start();
+    }
+
+    /** 一切按备份里的值：设置页配置、包名、（可选）浮窗位置；然后用 root 推给抖音。 */
+    private void applyBackup(final Backup.Parsed b, final boolean withPos) {
+        DanmakuConfig c = DanmakuConfig.fromText(b.cfgText);
+        c.liveAdjust = false; // 位置调节模式是临时状态，不随备份恢复
+        c.vidAdjust = false;
+        String pos = null;
+        if (withPos) {
+            if (b.posText != null) {
+                DanmakuConfig.applyPosText(c, b.posText);
+                pos = c.posText();
+            }
+        } else {
+            DanmakuConfig cur = read(); // 不恢复位置：保留现在的
+            c.liveX = cur.liveX;
+            c.liveY = cur.liveY;
+            c.pubX = cur.pubX;
+            c.pubY = cur.pubY;
+            c.timeX = cur.timeX;
+            c.timeY = cur.timeY;
+        }
+        final String cfgText = c.toText();
+        final String posText = pos;
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("cfg", cfgText).putString("pkg", b.pkgs).apply();
+        load();
+        refreshSummaries();
+        final List<String> list = DanmakuConfig.split(b.pkgs);
+        if (list.isEmpty()) {
+            showStatus("已恢复到设置页，但备份里没有包名，没推送给抖音。", 2);
+            return;
+        }
+        setBusy(btnRestore, true, "正在推送…");
+        showStatus("已恢复到设置页，正在推送给抖音…（首次会弹出 root 授权，请允许）", 0);
+        new Thread(() -> {
+            StringBuilder sb = new StringBuilder();
+            for (String pkg : list) {
+                if (!RootShell.validPkg(pkg)) {
+                    sb.append("✗ ").append(pkg).append("：包名格式不对\n");
+                    continue;
+                }
+                RootShell.Result r = RootShell.pushConfig(pkg, cfgText);
+                if (!r.out.contains("__OK__")) {
+                    sb.append("✗ ").append(pkg).append("：").append(r.out.contains("__NOPKG__") ? RootShell.nopkgMsg(r.out) : "推送设置失败(" + r.code + ") " + r.err.trim()).append('\n');
+                    continue;
+                }
+                if (posText != null) {
+                    RootShell.Result q = RootShell.pushPos(pkg, posText);
+                    if (!q.out.contains("__OK__")) {
+                        sb.append("✗ ").append(pkg).append("：设置已推送，位置文件失败(").append(q.code).append(") ").append(q.err.trim()).append('\n');
+                        continue;
+                    }
+                }
+                sb.append("✓ ").append(pkg).append(posText != null ? "：设置和位置已推送" : "：设置已推送").append('\n');
+            }
+            final boolean ok = sb.indexOf("✗") < 0;
+            final String msg = sb.toString();
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                setBusy(btnRestore, false, "从坚果云恢复");
+                showStatus(msg + "\n已按备份恢复。抖音回到前台就生效。", ok ? 1 : 2);
             });
         }).start();
     }

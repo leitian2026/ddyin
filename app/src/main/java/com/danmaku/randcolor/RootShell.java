@@ -128,6 +128,24 @@ final class RootShell {
         return run(script, 30);
     }
 
+    /** 恢复备份用：把位置文本写进目标 App 数据目录 files/dyin_pos.properties（属主 / 权限 / SELinux 标签同配置文件）。 */
+    static Result pushPos(String pkg, String posText) {
+        String script = findDirs(pkg)
+                + "for D in $DIRS; do\n"
+                + "U=$(stat -c %u $D)\n"
+                + "F=$D/files\n"
+                + "if [ ! -d $F ]; then mkdir -p $F; chown $U:$U $F; chmod 771 $F; restorecon $F 2>/dev/null; fi\n"
+                + "cat > $F/dyin_pos.properties <<'DANMAKU_EOF'\n"
+                + posText + "\n"
+                + "DANMAKU_EOF\n"
+                + "chown $U:$U $F/dyin_pos.properties\n"
+                + "chmod 600 $F/dyin_pos.properties\n"
+                + "restorecon $F/dyin_pos.properties 2>/dev/null\n"
+                + "done\n"
+                + "echo __OK__\n";
+        return run(script, 30);
+    }
+
     /** 读回目标 App 数据目录里的配置文本（位置浮窗在抖音里改过数值后，模块用它同步）。读不到返回 null。 */
     static String readConfig(String pkg) {
         return readFile(pkg, "danmaku_color.properties");

@@ -52,7 +52,7 @@ public class MainActivity extends Activity {
     private EditText etDavUser, etDavPass, etDavKeep, etDavDir;
     private TextView btnBackup, btnRestore;
     private Switch swVol;
-    private CheckBox cbVolHoriz, cbVolLock, cbVolFollow, cbVolHideCmt, cbVolVal, cbVolBig, cbVolOne;
+    private CheckBox cbVolHoriz, cbVolLock, cbVolFollow, cbVolUnderCmt, cbVolVal, cbVolBig, cbVolOne;
     private LinearLayout segVolPos;
     private VolSizeField volWF, volLF;
     /** 首页顶部标签行里的 13 个标签（来自 TextRec 追踪，40.7.0）；勾选 = 隐藏。 */
@@ -449,11 +449,11 @@ public class MainActivity extends Activity {
         cbVolFollow.setTextSize(15);
         cbVolFollow.setTextColor(cText);
         sVol.body.addView(cbVolFollow);
-        cbVolHideCmt = new CheckBox(this);
-        cbVolHideCmt.setText("评论打开时隐藏（视频时长被藏起来就一起藏；要开「视频时长常显」才有用）");
-        cbVolHideCmt.setTextSize(15);
-        cbVolHideCmt.setTextColor(cText);
-        sVol.body.addView(cbVolHideCmt);
+        cbVolUnderCmt = new CheckBox(this);
+        cbVolUnderCmt.setText("让评论盖住音量条（音量条加进每一页，评论弹出时和视频时长一样被盖住，上下划视频时跟着页面划走；直播间等没有视频页的地方照旧）");
+        cbVolUnderCmt.setTextSize(15);
+        cbVolUnderCmt.setTextColor(cText);
+        sVol.body.addView(cbVolUnderCmt);
         sVol.body.addView(sub("显示哪几块"));
         sVol.body.addView(note("三块各自一个开关，关掉的那块不显示，浮窗按剩下的变短；三块都关就不加浮窗。当前音量块关掉后没法在抖音里拖动浮窗，要挪位置先把它打开。"));
         cbVolVal = new CheckBox(this);
@@ -869,7 +869,7 @@ public class MainActivity extends Activity {
         cbVolHoriz.setChecked(c.volHoriz);
         cbVolLock.setChecked(c.volLock);
         cbVolFollow.setChecked(c.volFollow);
-        cbVolHideCmt.setChecked(c.volHideCmt);
+        cbVolUnderCmt.setChecked(c.volUnderCmt);
         cbVolVal.setChecked(c.volShowVal);
         cbVolBig.setChecked(c.volShowBig);
         cbVolOne.setChecked(c.volShowOne);
@@ -943,7 +943,7 @@ public class MainActivity extends Activity {
         c.volHoriz = cbVolHoriz.isChecked();
         c.volLock = cbVolLock.isChecked();
         c.volFollow = cbVolFollow.isChecked();
-        c.volHideCmt = cbVolHideCmt.isChecked();
+        c.volUnderCmt = cbVolUnderCmt.isChecked();
         c.volShowVal = cbVolVal.isChecked();
         c.volShowBig = cbVolBig.isChecked();
         c.volShowOne = cbVolOne.isChecked();

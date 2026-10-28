@@ -73,7 +73,7 @@ public class MainActivity extends Activity {
     private HalfDpField shRF, shDyF;
     private PctField tabRowF, tabItemF, tabShF;
     private ColorField tabRowColorF, tabItemColorF, tabTextColorF, tabTextSelColorF;
-    private CheckBox cbTabCenter;
+    private CheckBox cbTabCenter, cbBotGlass;
     private HalfDpField tabShRF, tabShDyF, tabGapF, tabRowPadXF, tabRowPadYF;
     private PctField tabItemHF;
     private HalfDpField tabSpreadF;
@@ -364,6 +364,13 @@ public class MainActivity extends Activity {
         tabRowPadXF = new HalfDpField(0, 40, 14);
         tabRowPadYF = new HalfDpField(0, 40, 12);
         Section sTabGlass = new Section("首页顶部标签液态玻璃", false, null, () -> "整行 " + (tabRowF.v == 0 ? "关" : tabRowF.v + "%") + " · 每个标签 " + (tabItemF.v == 0 ? "关" : tabItemF.v + "%"));
+        cbBotGlass = new CheckBox(this);
+        cbBotGlass.setText("底部导航（首页 / 朋友 / 消息 / 我）也加同样的玻璃");
+        cbBotGlass.setTextSize(15);
+        cbBotGlass.setTextColor(cText);
+        sTabGlass.body.addView(cbBotGlass);
+        sTabGlass.body.addView(note("底部导航用和顶部标签同一套参数（下面的不透明度、底色、大小、间距都一起管）。要等底部文字下一次变亮 / 变暗（切一下底部的页、或重启抖音）才挂上；两个不透明度都是 0% 时不挂。"));
+        sTabGlass.body.addView(rowLine());
         sTabGlass.body.addView(note("给首页顶部标签行（推荐、关注……）加两层液态玻璃：整行连在一起一层，每个标签自己再一层；画法是更立体的一套（高光、弧形反光、边缘光、细轮廓），标签是小长条，选中的标签更亮。0% = 不画；不透明度和底色改了马上生效，字的投影要等标签行刷新（切一下页、或重启抖音）。"));
         sTabGlass.body.addView(settingRow("标签文字之间额外距离", tabSpreadF.build()));
         sTabGlass.body.addView(note("把每个标签的框撑宽、文字左右各多留一半，标签文字之间的距离就真的变大（抖音原来的是 0）；标签玻璃的长度也跟着变长，想让玻璃长度不变，就把下面「标签之间的间距」调大同样的值。改完等标签行刷新（切一下页、或重启抖音）才生效，改回 0 同理。依据 TextRec 40.9.0 的标签布局（标签宽度写死 114px、文字左右外边距 17px），上机看效果。"));
@@ -844,6 +851,7 @@ public class MainActivity extends Activity {
         tabGapF.set(c.tabGap);
         tabSpreadF.set(c.tabSpread);
         cbTabCenter.setChecked(c.tabCenter);
+        cbBotGlass.setChecked(c.botGlass);
         tabTextColorF.set(c.tabTextColor);
         tabTextSelColorF.set(c.tabTextSelColor);
         tabRowPadXF.set(c.tabRowPadX);
@@ -912,6 +920,7 @@ public class MainActivity extends Activity {
         c.tabGap = tabGapF.v;
         c.tabSpread = tabSpreadF.v;
         c.tabCenter = cbTabCenter.isChecked();
+        c.botGlass = cbBotGlass.isChecked();
         c.tabTextColor = tabTextColorF.color;
         c.tabTextSelColor = tabTextSelColorF.color;
         c.tabRowPadX = tabRowPadXF.v;
@@ -1002,6 +1011,7 @@ public class MainActivity extends Activity {
             {"dtap.btn", "双击改评论：评论按钮的类（找不到时双击照常点赞）"},
             {"time.progress", "视频时长：播放进度"},
             {"tab.hide", "首页顶部标签隐藏"},
+            {"tab.bottom", "首页底部导航液态玻璃：认「首页 / 朋友 / 消息 / 我」的选中状态（DuxTextView#setAlpha）"},
             {"pub.bind", "发布日期地点 / 视频时长：翻页绑定（视频数据 + 页面容器）"},
             {"pub.text", "视频文案：改色 / 底条 / 接手容器（上顶、文案下方位置）（设置文字时）"},
             {"pub.anchor", "视频文案：认文案控件 / 容器 / 页面根的类（上顶、改色、底条都要）"},

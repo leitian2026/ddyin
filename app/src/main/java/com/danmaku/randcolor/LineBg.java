@@ -89,13 +89,18 @@ final class LineBg {
      */
     static void shadow(TextView t) {
         DanmakuConfig c = DanmakuHook.cfg;
-        int pct = c.lineShadow, key = pct | c.lineShadowR << 8 | c.lineShadowDy << 16;
+        shadow(t, c.lineShadow, c.lineShadowR, c.lineShadowDy);
+    }
+
+    /** 同上，不透明度（%）/ 半径 / 下移（0.5dp 一档）由调用方给（首页顶部标签的字用它）。 */
+    static void shadow(TextView t, int pct, int rr, int dd) {
+        int key = pct | rr << 8 | dd << 16;
         Object tag = t.getTag(SH_TAG);
         if (tag instanceof Integer && (Integer) tag == key) return;
         t.setTag(SH_TAG, key);
         float den = t.getResources().getDisplayMetrics().density;
         if (pct <= 0) t.setShadowLayer(0f, 0f, 0f, 0);
-        else t.setShadowLayer(Math.max(1, Math.round(c.lineShadowR * den / 2f)), 0f, Math.round(c.lineShadowDy * den / 2f), Math.round(255f * pct / 100f) << 24);
+        else t.setShadowLayer(Math.max(1, Math.round(rr * den / 2f)), 0f, Math.round(dd * den / 2f), Math.round(255f * pct / 100f) << 24);
     }
 
     private static final int UNCLIP_TAG = 0x7e0b0c06;
@@ -160,8 +165,26 @@ final class LineBg {
      * ③ 位置取整到整数像素，端部 1:1 贴、不用双线性过滤（只有底比两端还短、端部被缩小时才开过滤）。
      */
     private static void drawPill(Canvas cv, float l, float t, float r, float b, float sd, int pct) {
+        drawPillC(cv, l, t, r, b, sd, pct, DanmakuHook.cfg.lineBgColor == 0 ? GRAY : (DanmakuHook.cfg.lineBgColor & 0xFFFFFF)); // 用户选的底色；0 = 默认
+    }
+
+    /**
+     * 给别处（首页顶部标签的两层玻璃，见 TabGlass）画一条玻璃：l,t,r,b = 玻璃本身的框（柔边在它外面，由调用方留出位置）；
+     * pct = 不透明度 0～100（0 不画），color = 0xAARRGGBB 的底色，0 = 默认（偏白的中浅灰）。和文字底条是同一套画法、同一份缓存。
+     */
+    static void drawGlass(Canvas cv, float l, float t, float r, float b, int pct, int color) {
+        if (pct <= 0 || cv == null || r <= l || b <= t) return;
+        float sd = android.content.res.Resources.getSystem().getDisplayMetrics().scaledDensity;
+        drawPillC(cv, l, t, r, b, sd, pct, color == 0 ? GRAY : (color & 0xFFFFFF));
+    }
+
+    /** 玻璃的柔边宽（px）：drawGlass 的框外面要留这么宽。 */
+    static int softPx() {
+        return (int) Math.ceil(SOFT_SP * android.content.res.Resources.getSystem().getDisplayMetrics().scaledDensity);
+    }
+
+    private static void drawPillC(Canvas cv, float l, float t, float r, float b, float sd, int pct, int gray) {
         int a = Math.min(100, pct) * 255 / 100;
-        int gray = DanmakuHook.cfg.lineBgColor == 0 ? GRAY : (DanmakuHook.cfg.lineBgColor & 0xFFFFFF); // 用户选的底色；0 = 默认
         int h = Math.max(2, Math.round(b - t));
         int m = (int) Math.ceil(SOFT_SP * sd); // 柔边占的位图边距
         int cap = m + (h + 1) / 2; // 一端：柔边 + 半圆

@@ -62,6 +62,8 @@ public final class DanmakuConfig {
     public int tabSpread = 0;
     /** 标签行放在屏幕水平正中间（把标签行整体平移，让当前看得见的标签的中点对准窗口中点）；见 TabGlass.center。 */
     public boolean tabCenter = true;
+    /** 底部导航（首页 / 朋友 / 消息 / 我）也加和顶部标签同一套液态玻璃（用 tabRow* / tabItem* / tabGap / tabItemH 这些设置）。见 BotGlass。 */
+    public boolean botGlass = true;
     /** 标签文字颜色（0xAARRGGBB，不透明）：未选中 / 选中的标签各一个；0 = 不改抖音原来的。见 TabGlass.colorAll。 */
     public int tabTextColor = 0, tabTextSelColor = 0;
     /** 文字底条的填充颜色（0xAARRGGBB，不透明）；0 = 默认（白色，和音量块的底一样；1.42.17 前是近黑 #101010）。不透明度仍由 lineBg 管，描边始终白色。见 LineBg。 */
@@ -158,6 +160,7 @@ public final class DanmakuConfig {
             p.setProperty("tabRowPadY", String.valueOf(tabRowPadY));
             p.setProperty("tabSpread", String.valueOf(tabSpread));
             p.setProperty("tabCenter", String.valueOf(tabCenter));
+            p.setProperty("botGlass", String.valueOf(botGlass));
             p.setProperty("tabTextColor", String.valueOf(tabTextColor));
             p.setProperty("tabTextSelColor", String.valueOf(tabTextSelColor));
             p.setProperty("lineBgColor", String.valueOf(lineBgColor));
@@ -299,6 +302,7 @@ public final class DanmakuConfig {
         c.tabRowPadY = Math.max(0, Math.min(40, parseIntOr(p.getProperty("tabRowPadY", "12"), 12)));
         c.tabSpread = Math.max(0, Math.min(60, parseIntOr(p.getProperty("tabSpread", "0"), 0)));
         c.tabCenter = Boolean.parseBoolean(p.getProperty("tabCenter", "true").trim());
+        c.botGlass = Boolean.parseBoolean(p.getProperty("botGlass", "true").trim());
         c.tabTextColor = parseColor(p.getProperty("tabTextColor", "0"));
         c.tabTextSelColor = parseColor(p.getProperty("tabTextSelColor", "0"));
         c.lineBgColor = parseColor(p.getProperty("lineBgColor", "0"));

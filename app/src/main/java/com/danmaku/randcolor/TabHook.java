@@ -30,6 +30,9 @@ import de.robv.android.xposed.XposedBridge;
  *  - 隐藏后标签行怎么重排取决于抖音的布局（MainTabRelativeLayout 是否忽略 GONE 的子 View），没有真机验证过。
  *  - 抖音如果在我们设完之后又把这个标签设回可见，就会再显示出来，直到下一次 setContentDescription。
  * 没挂上时标签行保持原样，安静失效。
+ *
+ * 1.42.18 起同一个钩子还给标签行加两层液态玻璃（整行一层、每个标签各一层）和标签文字的投影，见 TabGlass；
+ * 隐藏勾选和玻璃设置有一个开着就挂这个钩子，回调里各自先看自己的开关。
  */
 final class TabHook {
     private TabHook() {}
@@ -39,10 +42,21 @@ final class TabHook {
 
     private static volatile Class<?> itemCls;
 
+    /** 标签控件的类（HomeTopTabItemViewNew）；钩子没挂上时是 null。TabGlass 用它认子控件。 */
+    static Class<?> itemClass() {
+        return itemCls;
+    }
+
+    /** 玻璃 / 标签文字投影有没有开（隐藏标签之外挂这个钩子的另一个理由）。 */
+    private static boolean glassOn(DanmakuConfig c) {
+        return c.tabRowBg > 0 || c.tabItemBg > 0 || c.tabShadow > 0;
+    }
+
     /** 启动时和每次回到前台都会被调用；HookGuard 保证已有结论后立刻返回。 */
     static void tryHook(ClassLoader cl) {
         if (cl == null || HookGuard.settled(HookGuard.TAB)) return;
-        if (DanmakuHook.cfg.hiddenTabs.length == 0) return; // 没勾选任何标签：不挂全局的 View.setContentDescription（没有结论，勾选后回到前台再挂）
+        DanmakuConfig cf = DanmakuHook.cfg;
+        if (cf.hiddenTabs.length == 0 && !glassOn(cf)) return; // 没勾选任何标签、玻璃也没开：不挂全局的 View.setContentDescription（没有结论，打开后回到前台再挂）
         Class<?> c = HookGuard.find(HookGuard.TAB, ITEM, cl); // 类没找到：记一次等待，下次回到前台再试
         if (c == null) return;
         try {
@@ -60,11 +74,15 @@ final class TabHook {
         @Override
         protected void afterHookedMethod(MethodHookParam p) {
             try {
-                String[] hide = DanmakuHook.cfg.hiddenTabs;
-                if (hide.length == 0) return; // 没勾选：什么都不做
+                DanmakuConfig cf = DanmakuHook.cfg;
+                String[] hide = cf.hiddenTabs;
+                boolean glass = glassOn(cf);
+                if (hide.length == 0 && !glass) return; // 都没开：什么都不做
                 Object o = p.thisObject;
                 Class<?> k = itemCls;
-                if (k == null || !k.isInstance(o) || p.args[0] == null) return;
+                if (k == null || !k.isInstance(o)) return;
+                if (glass) TabGlass.attach((View) o); // 两层玻璃 + 标签文字投影
+                if (hide.length == 0 || p.args[0] == null) return;
                 String s = p.args[0].toString(); // 字符串本身，不分配
                 int n = s.length();
                 for (String label : hide) {

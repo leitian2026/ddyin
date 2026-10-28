@@ -72,7 +72,8 @@ public class MainActivity extends Activity {
     private PctField bgF, liftF, shF;
     private HalfDpField shRF, shDyF;
     private PctField tabRowF, tabItemF, tabShF;
-    private ColorField tabRowColorF, tabItemColorF;
+    private ColorField tabRowColorF, tabItemColorF, tabTextColorF, tabTextSelColorF;
+    private CheckBox cbTabCenter;
     private HalfDpField tabShRF, tabShDyF, tabGapF, tabRowPadXF, tabRowPadYF;
     private PctField tabItemHF;
     private HalfDpField tabSpreadF;
@@ -334,6 +335,20 @@ public class MainActivity extends Activity {
             }
             sTabs.body.addView(row);
         }
+        sTabs.body.addView(rowLine());
+        cbTabCenter = new CheckBox(this);
+        cbTabCenter.setText("标签行放在屏幕正中间");
+        cbTabCenter.setTextSize(15);
+        cbTabCenter.setTextColor(cText);
+        sTabs.body.addView(cbTabCenter);
+        sTabs.body.addView(note("隐藏了一些标签后，把剩下的标签整行平移到屏幕水平正中。改完要等标签行下一次布局（切一下页、或重启抖音）才变；关掉后同样要等下一次布局才回到原位。"));
+        tabTextColorF = new ColorField("默认（抖音原来的）", "选择未选中标签的文字颜色");
+        tabTextSelColorF = new ColorField("默认（抖音原来的）", "选择选中标签的文字颜色");
+        sTabs.body.addView(rowLine());
+        sTabs.body.addView(tabTextColorF.row("未选中标签 文字颜色"));
+        sTabs.body.addView(rowLine());
+        sTabs.body.addView(tabTextSelColorF.row("选中标签 文字颜色"));
+        sTabs.body.addView(note("标签文字的颜色；选「默认」就不碰抖音自己的颜色（已经改过的要重启抖音才恢复）。颜色在标签行刷新（切一下页、或重启抖音）时套上，抖音自己在划动中改颜色时可能会盖掉，上机看。"));
         place(sTabs);
 
         tabRowF = new PctField(100);
@@ -828,6 +843,9 @@ public class MainActivity extends Activity {
         tabItemHF.set(c.tabItemH);
         tabGapF.set(c.tabGap);
         tabSpreadF.set(c.tabSpread);
+        cbTabCenter.setChecked(c.tabCenter);
+        tabTextColorF.set(c.tabTextColor);
+        tabTextSelColorF.set(c.tabTextSelColor);
         tabRowPadXF.set(c.tabRowPadX);
         tabRowPadYF.set(c.tabRowPadY);
         shRF.set(c.lineShadowR);
@@ -893,6 +911,9 @@ public class MainActivity extends Activity {
         c.tabItemH = Math.max(20, tabItemHF.v);
         c.tabGap = tabGapF.v;
         c.tabSpread = tabSpreadF.v;
+        c.tabCenter = cbTabCenter.isChecked();
+        c.tabTextColor = tabTextColorF.color;
+        c.tabTextSelColor = tabTextSelColorF.color;
         c.tabRowPadX = tabRowPadXF.v;
         c.tabRowPadY = tabRowPadYF.v;
         c.lineShadowR = shRF.v;

@@ -58,6 +58,8 @@ public final class DanmakuConfig {
     public int tabItemH = 60, tabGap = 12;
     /** 整行玻璃比标签玻璃多出的：左右 / 上下（0.5dp 一档，0～20dp）。 */
     public int tabRowPadX = 14, tabRowPadY = 12;
+    /** 标签文字之间额外撑开的距离（0.5dp 一档，0～30dp，0 = 不改抖音原来的）：每个标签的文字左右外边距各加一半、标签框宽度加整个值。见 TabGlass.applySpread。 */
+    public int tabSpread = 0;
     /** 文字底条的填充颜色（0xAARRGGBB，不透明）；0 = 默认（白色，和音量块的底一样；1.42.17 前是近黑 #101010）。不透明度仍由 lineBg 管，描边始终白色。见 LineBg。 */
     public int lineBgColor = 0;
     /** 模块自己决定颜色的字（弹幕随机色）的最低亮度（0～100，%，每档 5）：比这暗的颜色往白色提亮；0 = 不提亮。见 LineBg.legible。 */
@@ -150,6 +152,7 @@ public final class DanmakuConfig {
             p.setProperty("tabGap", String.valueOf(tabGap));
             p.setProperty("tabRowPadX", String.valueOf(tabRowPadX));
             p.setProperty("tabRowPadY", String.valueOf(tabRowPadY));
+            p.setProperty("tabSpread", String.valueOf(tabSpread));
             p.setProperty("lineBgColor", String.valueOf(lineBgColor));
             p.setProperty("textLift", String.valueOf(textLift));
             p.setProperty("blankH", String.valueOf(blankH));
@@ -287,6 +290,7 @@ public final class DanmakuConfig {
         c.tabGap = Math.max(0, Math.min(32, parseIntOr(p.getProperty("tabGap", "12"), 12)));
         c.tabRowPadX = Math.max(0, Math.min(40, parseIntOr(p.getProperty("tabRowPadX", "14"), 14)));
         c.tabRowPadY = Math.max(0, Math.min(40, parseIntOr(p.getProperty("tabRowPadY", "12"), 12)));
+        c.tabSpread = Math.max(0, Math.min(60, parseIntOr(p.getProperty("tabSpread", "0"), 0)));
         c.lineBgColor = parseColor(p.getProperty("lineBgColor", "0"));
         c.textLift = parsePct(p.getProperty("textLift", "30"), 30);
         c.blankH = Math.max(-1, Math.min(200, parseIntOr(p.getProperty("blankH", "-1"), -1)));

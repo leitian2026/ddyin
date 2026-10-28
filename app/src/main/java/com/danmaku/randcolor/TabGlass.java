@@ -2,8 +2,11 @@ package com.danmaku.randcolor;
 
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
+import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
+import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.view.View;
 import android.view.ViewGroup;
@@ -23,7 +26,7 @@ import android.widget.TextView;
  * 抖音自己已经给这个控件设了背景时不覆盖（背景非空就什么都不做）；类名对不上、层级对不上都安静不画，不换别的办法。
  *
  * 局限（没编译、没上机）：① 设置只在下一次 setContentDescription（切页 / 刷新 / 重启抖音）时才挂上或刷新文字投影；已经挂上的玻璃每次绘制都读当前设置，所以不透明度 / 底色改了马上跟着变，0% 就什么都不画；
- * ② 标签控件和标签行的实际大小没有追踪数据，缩进量（左右 2dp、上下 4dp，行两侧各多 8dp）是按截图估的，上机后可能要调；③ 玻璃被标签行自己的裁剪限制在控件范围内（柔边留在框里）。
+ * ② 标签控件和标签行的实际大小没有追踪数据，缩进量（标签玻璃左右 4dp、上下 5dp；整行两侧各多 10dp、上下各多 3dp）是按截图估的，上机后可能要调；③ 整行玻璃超出标签行框的部分靠关掉 MainTabStripNew 往上 8 层父容器的 clipChildren / clipToPadding 才画得出来（同 LineBg.unclip），被屏幕边缘挡住的部分看不到；④ 「选中」靠标签的无障碍描述里有「已选中」认（TextRec：「推荐，已选中，按钮」），描述格式变了就都不亮。
  */
 final class TabGlass {
     private TabGlass() {}
@@ -31,8 +34,8 @@ final class TabGlass {
     private static final int TAG = 0x7e0b0c07;
     private static final String ROW_CLS = "MainTabRelativeLayout", SCROLL_CLS = "MainTabStripScrollView", STRIP_CLS = "MainTabStripNew";
 
-    /** TabHook 的 setContentDescription 回调里调：item 已经确认是 HomeTopTabItemViewNew。 */
-    static void attach(View item) {
+    /** TabHook 的 setContentDescription 回调里调：item 已经确认是 HomeTopTabItemViewNew；selected = 描述里有「已选中」（TextRec：「推荐，已选中，按钮」）。 */
+    static void attach(View item, boolean selected) {
         DanmakuConfig c = DanmakuHook.cfg;
         // 文字的投影：每次回调都按当前设置刷新（LineBg.shadow 内部只在变了才重设）
         if (c.tabShadow > 0) shadowAll(item, c, 0); // 0% = 不碰抖音自己的字投影
@@ -40,6 +43,11 @@ final class TabGlass {
         if (item.getTag(TAG) == null && item.getBackground() == null) {
             item.setTag(TAG, Boolean.TRUE);
             item.setBackground(new ItemGlass());
+        }
+        Drawable bg = item.getBackground();
+        if (bg instanceof ItemGlass && ((ItemGlass) bg).selected != selected) { // 选中的标签玻璃更亮
+            ((ItemGlass) bg).selected = selected;
+            bg.invalidateSelf();
         }
         ViewParent p1 = item.getParent();
         if (!(p1 instanceof ViewGroup) || !ROW_CLS.equals(p1.getClass().getSimpleName())) return;
@@ -51,6 +59,7 @@ final class TabGlass {
         if (strip.getTag(TAG) == null && strip.getBackground() == null) {
             strip.setTag(TAG, Boolean.TRUE);
             strip.setBackground(new RowGlass((ViewGroup) p1, (ViewGroup) p2));
+            LineBg.unclip(strip); // 整行的玻璃比标签行大一圈（含柔边），关掉上面几层的裁剪才画得完整
         }
     }
 
@@ -63,8 +72,16 @@ final class TabGlass {
     }
 
     private static int dp(float v) {
-        return Math.round(v * android.content.res.Resources.getSystem().getDisplayMetrics().density);
+        return Math.round(dpf(v));
     }
+
+    private static float dpf(float v) {
+        return v * android.content.res.Resources.getSystem().getDisplayMetrics().density;
+    }
+
+    private static final Paint P = new Paint(Paint.ANTI_ALIAS_FLAG); // 主线程绘制，复用
+    private static final RectF BX = new RectF();
+    private static final Path PT = new Path();
 
     private abstract static class Glass extends Drawable {
         @Override public void setAlpha(int alpha) {}
@@ -72,22 +89,57 @@ final class TabGlass {
         @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
     }
 
-    /** 每个标签的玻璃：标签框四周缩进（柔边 + 左右 2dp、上下 4dp），设置 tabItemBg / tabItemColor。 */
+    /**
+     * 每个标签的玻璃（设置 tabItemBg / tabItemColor），要和整行那层分开：
+     *  - 比标签框缩进得多（左右 4dp、上下 5dp 再加柔边），相邻标签之间留出缝，缝里透出整行的玻璃；
+     *  - 玻璃下面有一道淡黑色的投影（往下偏 1.5dp、向外 3 层逐层变淡；只画在玻璃外面，不压暗玻璃本身；不用 BlurMaskFilter，硬件绘制下画不出来），像浮在整行玻璃上面；
+     *  - 选中的标签（描述里有「已选中」）再叠一层白色填充和一圈白色细边，比别的标签亮。
+     */
     private static final class ItemGlass extends Glass {
+        boolean selected;
+
         @Override
         public void draw(Canvas cv) {
             try {
                 DanmakuConfig c = DanmakuHook.cfg;
                 if (c.tabItemBg <= 0) return;
-                Rect b = getBounds();
+                Rect bd = getBounds();
                 int m = LineBg.softPx();
-                LineBg.drawGlass(cv, b.left + m + dp(2), b.top + m + dp(4), b.right - m - dp(2), b.bottom - m - dp(4), c.tabItemBg, c.tabItemColor);
+                float l = bd.left + m + dpf(4), t = bd.top + m + dpf(5), r = bd.right - m - dpf(4), b = bd.bottom - m - dpf(5);
+                if (r <= l || b <= t) return;
+                float f = Math.min(100, c.tabItemBg) / 100f, rad = (b - t) / 2f;
+                // 投影：只画在玻璃形状外面
+                PT.rewind();
+                PT.addRoundRect(l, t, r, b, rad, rad, Path.Direction.CW);
+                cv.save();
+                cv.clipOutPath(PT);
+                P.setStyle(Paint.Style.FILL);
+                float dy = dpf(1.5f);
+                for (int k = 3; k >= 1; k--) {
+                    float e = dpf(k);
+                    BX.set(l - e, t - e + dy, r + e, b + e + dy);
+                    P.setColor(Math.round(255f * f * (k == 1 ? 0.16f : k == 2 ? 0.09f : 0.05f)) << 24);
+                    cv.drawRoundRect(BX, (b - t) / 2f + e, (b - t) / 2f + e, P);
+                }
+                cv.restore();
+                LineBg.drawGlass(cv, l, t, r, b, c.tabItemBg, c.tabItemColor);
+                if (selected) { // 选中：白色填充 + 白色细边
+                    BX.set(l, t, r, b);
+                    P.setColor(0xFFFFFF | Math.round(255f * f * 0.20f) << 24);
+                    cv.drawRoundRect(BX, rad, rad, P);
+                    float sw = Math.max(1f, dpf(1f));
+                    BX.inset(sw / 2f, sw / 2f);
+                    P.setStyle(Paint.Style.STROKE);
+                    P.setStrokeWidth(sw);
+                    P.setColor(0xFFFFFF | Math.round(255f * f * 0.70f) << 24);
+                    cv.drawRoundRect(BX, rad - sw / 2f, rad - sw / 2f, P);
+                }
             } catch (Throwable ignored) {
             }
         }
     }
 
-    /** 整行的玻璃：把当前看得见的标签（HomeTopTabItemViewNew）的外框并起来，两侧各多 8dp，限制在标签行框内（柔边留在框里），设置 tabRowBg / tabRowColor。 */
+    /** 整行的玻璃：把当前看得见的标签（HomeTopTabItemViewNew）的外框并起来，两侧各多 10dp、上下各多 3dp（比标签的玻璃大一圈，不再限制在标签行框内，靠 attach 里关掉上面几层的裁剪），设置 tabRowBg / tabRowColor。 */
     private static final class RowGlass extends Glass {
         private final ViewGroup row, scroll;
 
@@ -117,12 +169,10 @@ final class TabGlass {
                     B = Math.max(B, v.getBottom() + oy);
                 }
                 if (R <= L || B <= T) return;
-                Rect b = getBounds();
-                int m = LineBg.softPx();
-                L = Math.max(L - dp(8), b.left + m);
-                R = Math.min(R + dp(8), b.right - m);
-                T = Math.max(T, b.top + m);
-                B = Math.min(B, b.bottom - m);
+                L -= dpf(10);
+                R += dpf(10);
+                T -= dpf(3);
+                B += dpf(3);
                 LineBg.drawGlass(cv, L, T, R, B, c.tabRowBg, c.tabRowColor);
             } catch (Throwable ignored) {
             }

@@ -46,10 +46,12 @@ final class TabGlass {
         // 文字颜色：选中 / 未选中各一个，0 = 不碰抖音自己的
         int tc = selected ? c.tabTextSelColor : c.tabTextColor;
         if (tc != 0) colorAll(item, tc, 0);
-        boolean glass = c.tabRowBg > 0 || c.tabItemBg > 0;
+        boolean glass = c.tabGlass && (c.tabRowBg > 0 || c.tabItemBg > 0);
         if (glass && item.getTag(TAG) == null && item.getBackground() == null) {
             item.setTag(TAG, Boolean.TRUE);
-            item.setBackground(new ItemGlass());
+            ItemGlass ig = new ItemGlass();
+            ig.top = true; // 顶部标签的：受 tabGlass 总开关管（底部导航共用这个类，不受它管）
+            item.setBackground(ig);
         }
         Drawable bg = item.getBackground();
         if (bg instanceof ItemGlass && ((ItemGlass) bg).selected != selected) { // 选中的标签玻璃更亮
@@ -334,13 +336,13 @@ final class TabGlass {
      *  - 选中的标签（描述里有「已选中」）再亮一档。
      */
     static final class ItemGlass extends Glass {
-        boolean selected;
+        boolean selected, top;
 
         @Override
         public void draw(Canvas cv) {
             try {
                 DanmakuConfig c = DanmakuHook.cfg;
-                if (c.tabItemBg <= 0) return;
+                if (c.tabItemBg <= 0 || (top && !c.tabGlass)) return;
                 Rect bd = getBounds();
                 float gh = bd.height() * c.tabItemH / 100f, cy = bd.exactCenterY(), gap = c.tabGap * dpf(0.5f) / 2f; // 缝的一半
                 float l = bd.left + gap, r = bd.right - gap, t = cy - gh / 2f, b = cy + gh / 2f;
@@ -383,7 +385,7 @@ final class TabGlass {
         public void draw(Canvas cv) {
             try {
                 DanmakuConfig c = DanmakuHook.cfg;
-                if (c.tabRowBg <= 0) return;
+                if (c.tabRowBg <= 0 || !c.tabGlass) return;
                 Class<?> k = TabHook.itemClass();
                 if (k == null) return;
                 int sl = scroll.getLeft(), sr = scroll.getRight(), sx = scroll.getScrollX();

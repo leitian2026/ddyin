@@ -29,7 +29,7 @@ import android.widget.TextView;
  * 抖音自己已经给这个控件设了背景时不覆盖（背景非空就什么都不做）；类名对不上、层级对不上都安静不画，不换别的办法。
  *
  * 局限（没编译、没上机）：① 设置只在下一次 setContentDescription（切页 / 刷新 / 重启抖音）时才挂上或刷新文字投影；已经挂上的玻璃每次绘制都读当前设置，所以不透明度 / 底色改了马上跟着变，0% 就什么都不画；
- * ② 标签控件和标签行的实际大小没有追踪数据，大小（标签玻璃：宽 = 标签框宽 − 两侧各 3dp，高 = 标签框高的 0.6 倍；整行：比标签玻璃上下各多 6dp、左右多 7dp）是按截图估的，上机后可能要调；③ 整行玻璃超出标签行框的部分靠关掉 MainTabStripNew 往上 8 层父容器的 clipChildren / clipToPadding 才画得出来（同 LineBg.unclip），被屏幕边缘挡住的部分看不到；④ 「选中」靠标签的无障碍描述里有「已选中」认（TextRec：「推荐，已选中，按钮」），描述格式变了就都不亮。
+ * ② 标签控件和标签行的实际大小没有追踪数据，默认大小（标签玻璃：高 = 标签框高的 60%，缝 6dp；整行：比标签玻璃上下各多 6dp、左右多 7dp）是按截图估的，设置页都能调，上机后可能要调；③ 整行玻璃超出标签行框的部分靠关掉 MainTabStripNew 往上 8 层父容器的 clipChildren / clipToPadding 才画得出来（同 LineBg.unclip），被屏幕边缘挡住的部分看不到；④ 「选中」靠标签的无障碍描述里有「已选中」认（TextRec：「推荐，已选中，按钮」），描述格式变了就都不亮。
  */
 final class TabGlass {
     private TabGlass() {}
@@ -179,7 +179,7 @@ final class TabGlass {
 
     /**
      * 每个标签的玻璃（设置 tabItemBg / tabItemColor）：一条小长条，和相邻的标签分开：
-     *  - 宽 = 标签框宽 − 两侧各 3dp − 柔边（相邻两条之间留约 6dp 的缝），高 = 标签框高的 0.6 倍、上下居中，所以是比字大一圈的小胶囊；
+     *  - 大小在设置页调：高 = 标签框高 × tabItemH（%，上下居中）；相邻两条之间的缝 = tabGap（0.5dp 一档），宽 = 标签框宽 − 缝（标签是抖音一个挨一个排的，宽和缝是同一个自由度）；
      *  - 玻璃下面有一道淡黑色投影（往下偏 1.5dp、向外 3 层逐层变淡；只画在玻璃外面，不压暗玻璃本身；不用 BlurMaskFilter，硬件绘制下画不出来）；
      *  - 选中的标签（描述里有「已选中」）再亮一档。
      */
@@ -192,9 +192,8 @@ final class TabGlass {
                 DanmakuConfig c = DanmakuHook.cfg;
                 if (c.tabItemBg <= 0) return;
                 Rect bd = getBounds();
-                int m = LineBg.softPx();
-                float gh = bd.height() * 0.6f, cy = bd.exactCenterY();
-                float l = bd.left + m + dpf(3), r = bd.right - m - dpf(3), t = cy - gh / 2f, b = cy + gh / 2f;
+                float gh = bd.height() * c.tabItemH / 100f, cy = bd.exactCenterY(), gap = c.tabGap * dpf(0.5f) / 2f; // 缝的一半
+                float l = bd.left + gap, r = bd.right - gap, t = cy - gh / 2f, b = cy + gh / 2f;
                 if (r <= l || b <= t) return;
                 float f = Math.min(100, c.tabItemBg) / 100f, rad = (b - t) / 2f;
                 // 投影：只画在玻璃形状外面
@@ -220,7 +219,7 @@ final class TabGlass {
 
     /**
      * 整行的玻璃（设置 tabRowBg / tabRowColor）：把当前看得见的标签（HomeTopTabItemViewNew）的外框并起来，
-     * 高 = 标签玻璃的高 + 上下各 6dp，左右比最外面的标签玻璃再多 7dp（不再限制在标签行框内，靠 attach 里关掉上面几层的裁剪）；层级强度 0.75，比标签的玻璃弱一点，托住它们。
+     * 高 = 标签玻璃的高 + 上下各 tabRowPadY，左右比最外面的标签玻璃再多 tabRowPadX（0.5dp 一档；不限制在标签行框内，靠 attach 里关掉上面几层的裁剪）；层级强度 0.75，比标签的玻璃弱一点，托住它们。
      */
     private static final class RowGlass extends Glass {
         private final ViewGroup row, scroll;
@@ -251,8 +250,9 @@ final class TabGlass {
                     B = Math.max(B, v.getBottom() + oy);
                 }
                 if (R <= L || B <= T) return;
-                float cy = (T + B) / 2f, half = (B - T) * 0.6f / 2f + dpf(6);
-                glass(cv, L + dpf(3) - dpf(7), cy - half, R - dpf(3) + dpf(7), cy + half, Math.min(100, c.tabRowBg) / 100f, 0.75f, c.tabRowColor, false);
+                float cy = (T + B) / 2f, half = (B - T) * c.tabItemH / 100f / 2f + c.tabRowPadY * dpf(0.5f);
+                float gap = c.tabGap * dpf(0.5f) / 2f, px = c.tabRowPadX * dpf(0.5f); // 最外面的标签玻璃的外沿 = 标签框外沿往里缩缝的一半
+                glass(cv, L + gap - px, cy - half, R - gap + px, cy + half, Math.min(100, c.tabRowBg) / 100f, 0.75f, c.tabRowColor, false);
             } catch (Throwable ignored) {
             }
         }

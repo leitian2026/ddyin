@@ -2,11 +2,14 @@ package com.danmaku.randcolor;
 
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
+import android.graphics.LinearGradient;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.Shader;
 import android.graphics.drawable.Drawable;
 import android.view.View;
 import android.view.ViewGroup;
@@ -14,7 +17,7 @@ import android.view.ViewParent;
 import android.widget.TextView;
 
 /**
- * 首页顶部标签行（推荐 / 关注 / 同城 …）的两层液态玻璃：整行一层、每个标签各一层，画法和文字底条的玻璃是同一套（LineBg.drawGlass，同一份缓存）。
+ * 首页顶部标签行（推荐 / 关注 / 同城 …）的两层液态玻璃：整行一层、每个标签各一层，画法是比文字底条更立体的一套（见 glass()：更透的底、高光渐变、弧形反光、边缘光、色散、细轮廓），只给标签用，文字底条的玻璃没动。
  *
  * 依据（TextRec 追踪，40.7.0，textrec-tasks-20261019-202639，见 TabHook）：标签行是 MainTabStripNew > MainTabStripScrollView > MainTabRelativeLayout，
  * 里面每个标签是 HomeTopTabItemViewNew（类名没混淆）；每个标签都会被调用 View.setContentDescription（页面切换、刷新时会重设）。
@@ -26,7 +29,7 @@ import android.widget.TextView;
  * 抖音自己已经给这个控件设了背景时不覆盖（背景非空就什么都不做）；类名对不上、层级对不上都安静不画，不换别的办法。
  *
  * 局限（没编译、没上机）：① 设置只在下一次 setContentDescription（切页 / 刷新 / 重启抖音）时才挂上或刷新文字投影；已经挂上的玻璃每次绘制都读当前设置，所以不透明度 / 底色改了马上跟着变，0% 就什么都不画；
- * ② 标签控件和标签行的实际大小没有追踪数据，缩进量（标签玻璃左右 4dp、上下 5dp；整行两侧各多 10dp、上下各多 3dp）是按截图估的，上机后可能要调；③ 整行玻璃超出标签行框的部分靠关掉 MainTabStripNew 往上 8 层父容器的 clipChildren / clipToPadding 才画得出来（同 LineBg.unclip），被屏幕边缘挡住的部分看不到；④ 「选中」靠标签的无障碍描述里有「已选中」认（TextRec：「推荐，已选中，按钮」），描述格式变了就都不亮。
+ * ② 标签控件和标签行的实际大小没有追踪数据，大小（标签玻璃：宽 = 标签框宽 − 两侧各 3dp，高 = 标签框高的 0.6 倍；整行：比标签玻璃上下各多 6dp、左右多 7dp）是按截图估的，上机后可能要调；③ 整行玻璃超出标签行框的部分靠关掉 MainTabStripNew 往上 8 层父容器的 clipChildren / clipToPadding 才画得出来（同 LineBg.unclip），被屏幕边缘挡住的部分看不到；④ 「选中」靠标签的无障碍描述里有「已选中」认（TextRec：「推荐，已选中，按钮」），描述格式变了就都不亮。
  */
 final class TabGlass {
     private TabGlass() {}
@@ -89,11 +92,96 @@ final class TabGlass {
         @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
     }
 
+    // ---- 更立体的玻璃（只给顶部标签用；文字底条的玻璃没动）。画在 Canvas 上，没有真正的背景模糊；标签就几个，每次绘制现画，不缓存。
+    /** 竖向高光（单位渐变：0 = 上沿，1 = 下沿，画之前缩放到框高）：上亮、中间透、底部再亮一点（折射回来的光）。颜色里的透明度是相对值，实际强度 = 它 × 不透明度 × 层级。 */
+    private static final LinearGradient SHEEN = new LinearGradient(0f, 0f, 0f, 1f,
+            new int[]{0x8CFFFFFF, 0x1AFFFFFF, 0x0DFFFFFF, 0x4DFFFFFF}, new float[]{0f, 0.45f, 0.7f, 1f}, Shader.TileMode.CLAMP);
+    /** 上半部那块弧形反光：上面亮、往下渐隐。 */
+    private static final LinearGradient GLOSS = new LinearGradient(0f, 0f, 0f, 1f,
+            new int[]{0x99FFFFFF, 0x00FFFFFF}, null, Shader.TileMode.CLAMP);
+    private static final Matrix MX = new Matrix();
+    private static final int DEF_COLOR = 0x7C7E84; // 和文字底条一样：偏白的中浅灰
+
+    /** 在 PT（框的圆角形状）里面画一道亮 / 暗边：把形状错开 (dx, dy) 再抠掉，剩下错开方向反侧的一道月牙。 */
+    private static void rim(Canvas cv, float dx, float dy, int argb, RectF box) {
+        cv.save();
+        cv.clipPath(PT);
+        PT.offset(dx, dy);
+        cv.clipOutPath(PT);
+        P.setShader(null);
+        P.setStyle(Paint.Style.FILL);
+        P.setColor(argb);
+        cv.drawRect(box, P);
+        cv.restore();
+        PT.offset(-dx, -dy);
+    }
+
+    private static int argb(int rgb, float a) {
+        return rgb | Math.round(255f * Math.max(0f, Math.min(1f, a))) << 24;
+    }
+
     /**
-     * 每个标签的玻璃（设置 tabItemBg / tabItemColor），要和整行那层分开：
-     *  - 比标签框缩进得多（左右 4dp、上下 5dp 再加柔边），相邻标签之间留出缝，缝里透出整行的玻璃；
-     *  - 玻璃下面有一道淡黑色的投影（往下偏 1.5dp、向外 3 层逐层变淡；只画在玻璃外面，不压暗玻璃本身；不用 BlurMaskFilter，硬件绘制下画不出来），像浮在整行玻璃上面；
-     *  - 选中的标签（描述里有「已选中」）再叠一层白色填充和一圈白色细边，比别的标签亮。
+     * 一块更立体的液态玻璃（l,t,r,b = 玻璃本身的框；两端半圆）。f = 不透明度（0～1，设置页的百分比），lvl = 层级强度（标签 1，整行 0.75），color = 底色（0 = 默认中浅灰），selected = 再亮一档。
+     * 叠法（自下而上）：半透明底色（比文字底条的玻璃更透，让后面的画面透出来）→ 竖向高光渐变 → 上半部弧形反光 → 边缘光：左上亮边、右侧一道暗边、下沿折射回来的亮弧、
+     * 左上偏青 / 右下偏暖的色散细边 → 一圈 1dp 的白色细轮廓。边缘光都是把形状错开一点再抠出来的月牙，两端自然变细。
+     */
+    private static void glass(Canvas cv, float l, float t, float r, float b, float f, float lvl, int color, boolean selected) {
+        float h = b - t, rad = h / 2f, k = f * lvl, d = dpf(1f);
+        int col = color == 0 ? DEF_COLOR : (color & 0xFFFFFF);
+        BX.set(l, t, r, b);
+        PT.rewind();
+        PT.addRoundRect(BX, rad, rad, Path.Direction.CW);
+        P.setShader(null);
+        P.setStyle(Paint.Style.FILL);
+        P.setColor(argb(col, 0.38f * f)); // 底色：不随层级变淡，层级只管高光
+        cv.drawRoundRect(BX, rad, rad, P);
+        if (selected) {
+            P.setColor(argb(0xFFFFFF, 0.20f * k));
+            cv.drawRoundRect(BX, rad, rad, P);
+        }
+        // 竖向高光
+        MX.setScale(1f, h);
+        MX.postTranslate(0f, t);
+        SHEEN.setLocalMatrix(MX);
+        P.setShader(SHEEN);
+        P.setColor(0xFFFFFFFF);
+        P.setAlpha(Math.round(255f * Math.min(1f, k)));
+        cv.drawRoundRect(BX, rad, rad, P);
+        // 上半部弧形反光：两端各缩进 0.3 倍高，占上半部
+        float gh = h * 0.38f;
+        BX.set(l + h * 0.30f, t + h * 0.08f, r - h * 0.30f, t + h * 0.08f + gh);
+        if (BX.right > BX.left) {
+            MX.setScale(1f, gh);
+            MX.postTranslate(0f, BX.top);
+            GLOSS.setLocalMatrix(MX);
+            P.setShader(GLOSS);
+            P.setColor(0xFFFFFFFF);
+            P.setAlpha(Math.round(255f * Math.min(1f, 0.9f * k)));
+            cv.drawRoundRect(BX, gh / 2f, gh / 2f, P);
+        }
+        P.setShader(null);
+        // 边缘光
+        BX.set(l, t, r, b);
+        rim(cv, 1.3f * d, 1.3f * d, argb(0xFFFFFF, 0.80f * k), BX); // 左上亮边
+        rim(cv, 0f, -1.8f * d, argb(0xFFFFFF, 0.38f * k), BX); // 下沿折射回来的亮弧
+        rim(cv, -1.2f * d, 0f, argb(0x000000, 0.22f * f), BX); // 右侧暗边（让玻璃有厚度）
+        rim(cv, d, d, argb(0x80E0FF, 0.35f * k), BX); // 色散：左上偏青
+        rim(cv, -d, -d, argb(0xFFB070, 0.35f * k), BX); // 色散：右下偏暖
+        // 1dp 白色细轮廓（向里画）
+        float sw = Math.max(1f, d);
+        BX.inset(sw / 2f, sw / 2f);
+        P.setStyle(Paint.Style.STROKE);
+        P.setStrokeWidth(sw);
+        P.setColor(argb(0xFFFFFF, (selected ? 0.90f : 0.45f) * k));
+        cv.drawRoundRect(BX, rad - sw / 2f, rad - sw / 2f, P);
+        P.setStyle(Paint.Style.FILL);
+    }
+
+    /**
+     * 每个标签的玻璃（设置 tabItemBg / tabItemColor）：一条小长条，和相邻的标签分开：
+     *  - 宽 = 标签框宽 − 两侧各 3dp − 柔边（相邻两条之间留约 6dp 的缝），高 = 标签框高的 0.6 倍、上下居中，所以是比字大一圈的小胶囊；
+     *  - 玻璃下面有一道淡黑色投影（往下偏 1.5dp、向外 3 层逐层变淡；只画在玻璃外面，不压暗玻璃本身；不用 BlurMaskFilter，硬件绘制下画不出来）；
+     *  - 选中的标签（描述里有「已选中」）再亮一档。
      */
     private static final class ItemGlass extends Glass {
         boolean selected;
@@ -105,7 +193,8 @@ final class TabGlass {
                 if (c.tabItemBg <= 0) return;
                 Rect bd = getBounds();
                 int m = LineBg.softPx();
-                float l = bd.left + m + dpf(4), t = bd.top + m + dpf(5), r = bd.right - m - dpf(4), b = bd.bottom - m - dpf(5);
+                float gh = bd.height() * 0.6f, cy = bd.exactCenterY();
+                float l = bd.left + m + dpf(3), r = bd.right - m - dpf(3), t = cy - gh / 2f, b = cy + gh / 2f;
                 if (r <= l || b <= t) return;
                 float f = Math.min(100, c.tabItemBg) / 100f, rad = (b - t) / 2f;
                 // 投影：只画在玻璃形状外面
@@ -113,33 +202,26 @@ final class TabGlass {
                 PT.addRoundRect(l, t, r, b, rad, rad, Path.Direction.CW);
                 cv.save();
                 cv.clipOutPath(PT);
+                P.setShader(null);
                 P.setStyle(Paint.Style.FILL);
                 float dy = dpf(1.5f);
                 for (int k = 3; k >= 1; k--) {
                     float e = dpf(k);
                     BX.set(l - e, t - e + dy, r + e, b + e + dy);
                     P.setColor(Math.round(255f * f * (k == 1 ? 0.16f : k == 2 ? 0.09f : 0.05f)) << 24);
-                    cv.drawRoundRect(BX, (b - t) / 2f + e, (b - t) / 2f + e, P);
+                    cv.drawRoundRect(BX, rad + e, rad + e, P);
                 }
                 cv.restore();
-                LineBg.drawGlass(cv, l, t, r, b, c.tabItemBg, c.tabItemColor);
-                if (selected) { // 选中：白色填充 + 白色细边
-                    BX.set(l, t, r, b);
-                    P.setColor(0xFFFFFF | Math.round(255f * f * 0.20f) << 24);
-                    cv.drawRoundRect(BX, rad, rad, P);
-                    float sw = Math.max(1f, dpf(1f));
-                    BX.inset(sw / 2f, sw / 2f);
-                    P.setStyle(Paint.Style.STROKE);
-                    P.setStrokeWidth(sw);
-                    P.setColor(0xFFFFFF | Math.round(255f * f * 0.70f) << 24);
-                    cv.drawRoundRect(BX, rad - sw / 2f, rad - sw / 2f, P);
-                }
+                glass(cv, l, t, r, b, f, 1f, c.tabItemColor, selected);
             } catch (Throwable ignored) {
             }
         }
     }
 
-    /** 整行的玻璃：把当前看得见的标签（HomeTopTabItemViewNew）的外框并起来，两侧各多 10dp、上下各多 3dp（比标签的玻璃大一圈，不再限制在标签行框内，靠 attach 里关掉上面几层的裁剪），设置 tabRowBg / tabRowColor。 */
+    /**
+     * 整行的玻璃（设置 tabRowBg / tabRowColor）：把当前看得见的标签（HomeTopTabItemViewNew）的外框并起来，
+     * 高 = 标签玻璃的高 + 上下各 6dp，左右比最外面的标签玻璃再多 7dp（不再限制在标签行框内，靠 attach 里关掉上面几层的裁剪）；层级强度 0.75，比标签的玻璃弱一点，托住它们。
+     */
     private static final class RowGlass extends Glass {
         private final ViewGroup row, scroll;
 
@@ -169,11 +251,8 @@ final class TabGlass {
                     B = Math.max(B, v.getBottom() + oy);
                 }
                 if (R <= L || B <= T) return;
-                L -= dpf(10);
-                R += dpf(10);
-                T -= dpf(3);
-                B += dpf(3);
-                LineBg.drawGlass(cv, L, T, R, B, c.tabRowBg, c.tabRowColor);
+                float cy = (T + B) / 2f, half = (B - T) * 0.6f / 2f + dpf(6);
+                glass(cv, L + dpf(3) - dpf(7), cy - half, R - dpf(3) + dpf(7), cy + half, Math.min(100, c.tabRowBg) / 100f, 0.75f, c.tabRowColor, false);
             } catch (Throwable ignored) {
             }
         }

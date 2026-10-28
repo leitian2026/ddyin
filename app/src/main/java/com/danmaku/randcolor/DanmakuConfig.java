@@ -60,6 +60,10 @@ public final class DanmakuConfig {
     public int tabRowPadX = 14, tabRowPadY = 12;
     /** 标签文字之间额外撑开的距离（0.5dp 一档，0～30dp，0 = 不改抖音原来的）：每个标签的文字左右外边距各加一半、标签框宽度加整个值。见 TabGlass.applySpread。 */
     public int tabSpread = 0;
+    /** 标签行放在屏幕水平正中间（把标签行整体平移，让当前看得见的标签的中点对准窗口中点）；见 TabGlass.center。 */
+    public boolean tabCenter = true;
+    /** 标签文字颜色（0xAARRGGBB，不透明）：未选中 / 选中的标签各一个；0 = 不改抖音原来的。见 TabGlass.colorAll。 */
+    public int tabTextColor = 0, tabTextSelColor = 0;
     /** 文字底条的填充颜色（0xAARRGGBB，不透明）；0 = 默认（白色，和音量块的底一样；1.42.17 前是近黑 #101010）。不透明度仍由 lineBg 管，描边始终白色。见 LineBg。 */
     public int lineBgColor = 0;
     /** 模块自己决定颜色的字（弹幕随机色）的最低亮度（0～100，%，每档 5）：比这暗的颜色往白色提亮；0 = 不提亮。见 LineBg.legible。 */
@@ -153,6 +157,9 @@ public final class DanmakuConfig {
             p.setProperty("tabRowPadX", String.valueOf(tabRowPadX));
             p.setProperty("tabRowPadY", String.valueOf(tabRowPadY));
             p.setProperty("tabSpread", String.valueOf(tabSpread));
+            p.setProperty("tabCenter", String.valueOf(tabCenter));
+            p.setProperty("tabTextColor", String.valueOf(tabTextColor));
+            p.setProperty("tabTextSelColor", String.valueOf(tabTextSelColor));
             p.setProperty("lineBgColor", String.valueOf(lineBgColor));
             p.setProperty("textLift", String.valueOf(textLift));
             p.setProperty("blankH", String.valueOf(blankH));
@@ -291,6 +298,9 @@ public final class DanmakuConfig {
         c.tabRowPadX = Math.max(0, Math.min(40, parseIntOr(p.getProperty("tabRowPadX", "14"), 14)));
         c.tabRowPadY = Math.max(0, Math.min(40, parseIntOr(p.getProperty("tabRowPadY", "12"), 12)));
         c.tabSpread = Math.max(0, Math.min(60, parseIntOr(p.getProperty("tabSpread", "0"), 0)));
+        c.tabCenter = Boolean.parseBoolean(p.getProperty("tabCenter", "true").trim());
+        c.tabTextColor = parseColor(p.getProperty("tabTextColor", "0"));
+        c.tabTextSelColor = parseColor(p.getProperty("tabTextSelColor", "0"));
         c.lineBgColor = parseColor(p.getProperty("lineBgColor", "0"));
         c.textLift = parsePct(p.getProperty("textLift", "30"), 30);
         c.blankH = Math.max(-1, Math.min(200, parseIntOr(p.getProperty("blankH", "-1"), -1)));

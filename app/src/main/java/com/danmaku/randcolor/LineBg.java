@@ -314,18 +314,18 @@ final class LineBg {
         @Override
         protected void onVisibilityChanged(View changedView, int visibility) {
             super.onVisibilityChanged(changedView, visibility);
-            if (follow) VolPanel.source(this, isShown());
+            if (follow) VolPanel.source(this, isShown(), isAttachedToWindow());
         }
 
         @Override
         protected void onAttachedToWindow() {
             super.onAttachedToWindow();
-            if (follow) VolPanel.source(this, isShown());
+            if (follow) VolPanel.source(this, isShown(), true);
         }
 
         @Override
         protected void onDetachedFromWindow() {
-            if (follow) VolPanel.source(this, false); // 摘下时父链还在，isShown 会误判成真，这里直接给假
+            if (follow) VolPanel.source(this, false, false); // 摘下时父链还在，isShown 会误判成真，这里直接给假
             super.onDetachedFromWindow();
         }
 

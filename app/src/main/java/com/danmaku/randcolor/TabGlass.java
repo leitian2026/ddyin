@@ -75,6 +75,24 @@ final class TabGlass {
 
     private static final int CENTER_TAG = 0x7e0b0c09, SHIFT_TAG = 0x7e0b0c0a;
 
+    /** 挂过居中监听的标签条（弱引用，主线程用）：回到前台时各重算一次。 */
+    private static final java.util.ArrayList<java.lang.ref.WeakReference<Centerer>> CENTERERS = new java.util.ArrayList<>();
+
+    /** 回到前台（配置刚重读过）：登记过的标签条重算一次居中（关了 tabCenter 就还原）。只在回前台调，不是每帧；没有扫描，只对登记过的几个对象调 center。 */
+    static void onResume() {
+        for (int i = CENTERERS.size() - 1; i >= 0; i--) {
+            Centerer z = CENTERERS.get(i).get();
+            if (z == null) {
+                CENTERERS.remove(i);
+                continue;
+            }
+            try {
+                if (z.row.isLaidOut() && !z.row.isLayoutRequested()) center(z.row, z.scroll, z.strip);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
     /** 挂在标签行（MainTabRelativeLayout）上的布局监听：行每次重新布局（隐藏 / 显示标签、标签宽度变）之后重新居中。 */
     private static final class Centerer implements View.OnLayoutChangeListener {
         final ViewGroup row, scroll, strip;
@@ -100,6 +118,7 @@ final class TabGlass {
      * 什么时候算：标签行（MainTabRelativeLayout）上挂一个 OnLayoutChangeListener，行每次布局完算一次（隐藏标签后会重新布局）；
      * attach 里布局已经完成时也算一次。attach 时布局还在排队（isLayoutRequested）就不算，等监听来算。
      * 1.44.4：位置只按布局算（忽略祖先的平移 / 缩放），见 center() 里的说明。
+     * 1.44.6：重算的时机加了两处——监听同时挂在滚动容器和标签条上；回到前台时对登记过的标签条重算一次（onResume）。算法没动。
      * 没追踪过的（上机看）：① MainTabStripNew 平移后它的触摸范围会跟着移，如果它比标签行宽很多、盖到右上角搜索按钮上，搜索按钮可能点不到；
      * ② 抖音有没有在别处自己设过这个控件的 translationX；③ 标签多到超出横向滚动容器时，只把看得见的那一段居中。
      * 关掉 tabCenter 后，下一次布局时把平移还原成 0（只还原我们设过的）。
@@ -109,7 +128,11 @@ final class TabGlass {
         if (row.getTag(CENTER_TAG) == null) {
             if (!c.tabCenter) return; // 没开过：什么都不碰
             row.setTag(CENTER_TAG, Boolean.TRUE);
-            row.addOnLayoutChangeListener(new Centerer(row, scroll, strip)); // 每个标签行只挂一次
+            Centerer z = new Centerer(row, scroll, strip); // 每个标签行只挂一次
+            row.addOnLayoutChangeListener(z);
+            scroll.addOnLayoutChangeListener(z); // 1.44.6：上面几层（滚动容器、标签条）重新布局、位置变了，行自己没重新布局也要重算
+            strip.addOnLayoutChangeListener(z);
+            CENTERERS.add(new java.lang.ref.WeakReference<>(z));
             LineBg.unclip(strip); // 平移后可能超出原来的位置，关掉上面几层的裁剪
         }
         if (row.isLaidOut() && !row.isLayoutRequested()) center(row, scroll, strip);

@@ -97,10 +97,23 @@ final class TabGlass {
     private static final class Centerer implements View.OnLayoutChangeListener {
         final ViewGroup row, scroll, strip;
 
+        /** 这个监听挂在了哪些控件上（标签行、滚动容器、标签条和标签条所有的祖先），换了新的标签行时旧的整批摘掉。 */
+        final java.util.ArrayList<View> hosts = new java.util.ArrayList<>();
+
         Centerer(ViewGroup row, ViewGroup scroll, ViewGroup strip) {
             this.row = row;
             this.scroll = scroll;
             this.strip = strip;
+        }
+
+        void host(View v) {
+            v.addOnLayoutChangeListener(this);
+            hosts.add(v);
+        }
+
+        void detach() {
+            for (int i = 0, n = hosts.size(); i < n; i++) hosts.get(i).removeOnLayoutChangeListener(this);
+            hosts.clear();
         }
 
         @Override
@@ -119,6 +132,7 @@ final class TabGlass {
      * attach 里布局已经完成时也算一次。attach 时布局还在排队（isLayoutRequested）就不算，等监听来算。
      * 1.44.4：位置只按布局算（忽略祖先的平移 / 缩放），见 center() 里的说明。
      * 1.44.6：重算的时机加了两处——监听同时挂在滚动容器和标签条上；回到前台时对登记过的标签条重算一次（onResume）。算法没动。
+     * 1.44.7：监听改成挂在标签条的整条祖先链上（1.44.6 挂的滚动容器、标签行都在标签条下面，祖先变了收不到）。
      * 没追踪过的（上机看）：① MainTabStripNew 平移后它的触摸范围会跟着移，如果它比标签行宽很多、盖到右上角搜索按钮上，搜索按钮可能点不到；
      * ② 抖音有没有在别处自己设过这个控件的 translationX；③ 标签多到超出横向滚动容器时，只把看得见的那一段居中。
      * 关掉 tabCenter 后，下一次布局时把平移还原成 0（只还原我们设过的）。
@@ -128,10 +142,26 @@ final class TabGlass {
         if (row.getTag(CENTER_TAG) == null) {
             if (!c.tabCenter) return; // 没开过：什么都不碰
             row.setTag(CENTER_TAG, Boolean.TRUE);
+            for (int i = CENTERERS.size() - 1; i >= 0; i--) { // 旧的标签条已经不在窗口里了（页面重建）：把它挂在祖先上的监听摘掉，不留着引用旧控件
+                Centerer old = CENTERERS.get(i).get();
+                if (old == null) {
+                    CENTERERS.remove(i);
+                } else if (!old.strip.isAttachedToWindow()) {
+                    old.detach();
+                    CENTERERS.remove(i);
+                }
+            }
             Centerer z = new Centerer(row, scroll, strip); // 每个标签行只挂一次
-            row.addOnLayoutChangeListener(z);
-            scroll.addOnLayoutChangeListener(z); // 1.44.6：上面几层（滚动容器、标签条）重新布局、位置变了，行自己没重新布局也要重算
-            strip.addOnLayoutChangeListener(z);
+            z.host(row);
+            z.host(scroll);
+            z.host(strip);
+            // 1.44.7：平移量取决于标签条在窗口里的位置（沿父级累加 getLeft），任何一层祖先的位置 / 宽度变了都要重算；
+            // 祖先变了标签条自己的布局事件不会来，所以监听挂在整条祖先链上（十几层，只在那一层真的重新布局时才回调）
+            ViewParent up = strip.getParent();
+            while (up instanceof View) {
+                z.host((View) up);
+                up = up.getParent();
+            }
             CENTERERS.add(new java.lang.ref.WeakReference<>(z));
             LineBg.unclip(strip); // 平移后可能超出原来的位置，关掉上面几层的裁剪
         }

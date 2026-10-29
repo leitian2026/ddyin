@@ -180,6 +180,10 @@ final class DanmakuHook {
                         } catch (Throwable ignored) {
                         }
                         try {
+                            TabGlass.onResume();
+                        } catch (Throwable ignored) {
+                        }
+                        try {
                             HookGuard.noteVersion(a);
                         } catch (Throwable ignored) {
                         }

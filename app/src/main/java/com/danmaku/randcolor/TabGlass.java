@@ -1,5 +1,6 @@
 package com.danmaku.randcolor;
 
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
 import android.graphics.LinearGradient;
@@ -119,6 +120,9 @@ final class TabGlass {
         @Override
         public void onLayoutChange(View v, int l, int t, int r, int b, int ol, int ot, int or, int ob) {
             try {
+                // 标签条的祖先：只有它自己的位置 / 大小变了才会影响居中；某个后代 requestLayout 时整条祖先链都会再布局一遍（框没变），那种不算。
+                // 标签行 / 滚动容器 / 标签条本身不做这个判断：隐藏 / 显示标签、标签宽度变了，它们的框可以不变，但可见标签的范围变了。
+                if (v != row && v != scroll && v != strip && l == ol && t == ot && r == or && b == ob) return;
                 center(row, scroll, strip);
             } catch (Throwable ignored) {
             }
@@ -133,6 +137,7 @@ final class TabGlass {
      * 1.44.4：位置只按布局算（忽略祖先的平移 / 缩放），见 center() 里的说明。
      * 1.44.6：重算的时机加了两处——监听同时挂在滚动容器和标签条上；回到前台时对登记过的标签条重算一次（onResume）。算法没动。
      * 1.44.7：监听改成挂在标签条的整条祖先链上（1.44.6 挂的滚动容器、标签行都在标签条下面，祖先变了收不到）。
+     * 1.44.8：祖先上的回调先看自己的框变没变，没变就返回（后代 requestLayout 会让整条祖先链都再布局一遍）。
      * 没追踪过的（上机看）：① MainTabStripNew 平移后它的触摸范围会跟着移，如果它比标签行宽很多、盖到右上角搜索按钮上，搜索按钮可能点不到；
      * ② 抖音有没有在别处自己设过这个控件的 translationX；③ 标签多到超出横向滚动容器时，只把看得见的那一段居中。
      * 关掉 tabCenter 后，下一次布局时把平移还原成 0（只还原我们设过的）。
@@ -310,7 +315,7 @@ final class TabGlass {
         @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
     }
 
-    // ---- 更立体的玻璃（只给顶部标签用；文字底条的玻璃没动）。画在 Canvas 上，没有真正的背景模糊；标签就几个，每次绘制现画，不缓存。
+    // ---- 更立体的玻璃（只给顶部标签用；文字底条的玻璃没动）。画在 Canvas 上，没有真正的背景模糊；1.44.9 起按参数缓存成硬件位图（drawGlass），glass() 只在缓存没命中时画一次。
     /** 竖向高光（单位渐变：0 = 上沿，1 = 下沿，画之前缩放到框高）：上亮、中间透、底部再亮一点（折射回来的光）。颜色里的透明度是相对值，实际强度 = 它 × 不透明度 × 层级。 */
     private static final LinearGradient SHEEN = new LinearGradient(0f, 0f, 0f, 1f,
             new int[]{0x8CFFFFFF, 0x1AFFFFFF, 0x0DFFFFFF, 0x4DFFFFFF}, new float[]{0f, 0.45f, 0.7f, 1f}, Shader.TileMode.CLAMP);
@@ -395,6 +400,75 @@ final class TabGlass {
         P.setStyle(Paint.Style.FILL);
     }
 
+    // ---- 1.44.9：玻璃缓存成硬件位图。glass() 一块要 5 道边缘光 × 2 次路径裁剪 + 十来个绘制操作，12 块（顶部 5 + 整行、底部 5 + 整行）每次重绘都现画，
+    // 划视频 / 标签动画时每帧上百个操作、上百次非矩形裁剪。玻璃外观只由（宽、高、不透明度、层级、颜色、选中、有没有投影）决定，
+    // 所以按这些参数在软件画布上画一次，转成硬件位图（显存里），之后每次绘制只 drawBitmap 一下。参数一变（设置、大小、选中）就是新的一张。
+    private static final int GC_N = 24;
+    private static final Bitmap[] GC_BM = new Bitmap[GC_N];
+    private static final float[] GC_F = new float[GC_N * 4]; // 宽、高、不透明度、层级
+    private static final int[] GC_I = new int[GC_N * 2];     // 颜色、标志（1 = 选中，2 = 带投影）
+    private static int gcNext;
+
+    private static final float SHADOW_MARGIN_DP = 4.6f; // 投影最远：向外 3dp + 往下偏 1.5dp
+
+    /** 投影：只画在玻璃形状外面（往下偏 1.5dp、向外 3 层逐层变淡；不用 BlurMaskFilter，硬件绘制下画不出来）。 */
+    private static void shadow(Canvas cv, float l, float t, float r, float b, float f) {
+        float rad = (b - t) / 2f;
+        PT.rewind();
+        PT.addRoundRect(l, t, r, b, rad, rad, Path.Direction.CW);
+        cv.save();
+        cv.clipOutPath(PT);
+        P.setShader(null);
+        P.setStyle(Paint.Style.FILL);
+        float dy = dpf(1.5f);
+        for (int k = 3; k >= 1; k--) {
+            float e = dpf(k);
+            BX.set(l - e, t - e + dy, r + e, b + e + dy);
+            P.setColor(Math.round(255f * f * (k == 1 ? 0.16f : k == 2 ? 0.09f : 0.05f)) << 24);
+            cv.drawRoundRect(BX, rad + e, rad + e, P);
+        }
+        cv.restore();
+    }
+
+    /** 画一块玻璃（可带投影）到 cv 上，框是 (l, t, r, b)。从缓存取位图一次绘制；没有就画一张存起来。位置取整到像素。 */
+    static void drawGlass(Canvas cv, float l, float t, float r, float b, float f, float lvl, int color, boolean selected, boolean withShadow) {
+        float w = r - l, h = b - t;
+        int flags = (selected ? 1 : 0) | (withShadow ? 2 : 0);
+        int slot = -1;
+        for (int i = 0; i < GC_N; i++) {
+            Bitmap bm = GC_BM[i];
+            if (bm == null) continue;
+            int o = i * 4;
+            if (GC_F[o] == w && GC_F[o + 1] == h && GC_F[o + 2] == f && GC_F[o + 3] == lvl && GC_I[i * 2] == color && GC_I[i * 2 + 1] == flags) {
+                slot = i;
+                break;
+            }
+        }
+        int m = withShadow ? (int) Math.ceil(dpf(SHADOW_MARGIN_DP)) + 1 : 0;
+        if (slot < 0) {
+            int bw = (int) Math.ceil(w) + 2 * m, bh = (int) Math.ceil(h) + 2 * m;
+            if (bw <= 0 || bh <= 0) return;
+            Bitmap sw = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
+            Canvas c = new Canvas(sw);
+            if (withShadow) shadow(c, m, m, m + w, m + h, f);
+            glass(c, m, m, m + w, m + h, f, lvl, color, selected);
+            Bitmap hw = sw.copy(Bitmap.Config.HARDWARE, false); // minSdk 27；转成硬件位图（显存），之后绘制不再上传
+            if (hw == null) hw = sw;
+            else sw.recycle();
+            slot = gcNext;
+            gcNext = (gcNext + 1) % GC_N;
+            GC_BM[slot] = hw; // 被挤掉的旧位图不 recycle（可能还被已录好的显示列表引用），交给 GC
+            int o = slot * 4;
+            GC_F[o] = w;
+            GC_F[o + 1] = h;
+            GC_F[o + 2] = f;
+            GC_F[o + 3] = lvl;
+            GC_I[slot * 2] = color;
+            GC_I[slot * 2 + 1] = flags;
+        }
+        cv.drawBitmap(GC_BM[slot], Math.round(l) - m, Math.round(t) - m, null);
+    }
+
     /**
      * 每个标签的玻璃（设置 tabItemBg / tabItemColor）：一条小长条，和相邻的标签分开：
      *  - 大小在设置页调：高 = 标签框高 × tabItemH（%，上下居中）；相邻两条之间的缝 = tabGap（0.5dp 一档），宽 = 标签框宽 − 缝（标签是抖音一个挨一个排的，宽和缝是同一个自由度）；
@@ -413,23 +487,8 @@ final class TabGlass {
                 float gh = bd.height() * c.tabItemH / 100f, cy = bd.exactCenterY(), gap = c.tabGap * dpf(0.5f) / 2f; // 缝的一半
                 float l = bd.left + gap, r = bd.right - gap, t = cy - gh / 2f, b = cy + gh / 2f;
                 if (r <= l || b <= t) return;
-                float f = Math.min(100, c.tabItemBg) / 100f, rad = (b - t) / 2f;
-                // 投影：只画在玻璃形状外面
-                PT.rewind();
-                PT.addRoundRect(l, t, r, b, rad, rad, Path.Direction.CW);
-                cv.save();
-                cv.clipOutPath(PT);
-                P.setShader(null);
-                P.setStyle(Paint.Style.FILL);
-                float dy = dpf(1.5f);
-                for (int k = 3; k >= 1; k--) {
-                    float e = dpf(k);
-                    BX.set(l - e, t - e + dy, r + e, b + e + dy);
-                    P.setColor(Math.round(255f * f * (k == 1 ? 0.16f : k == 2 ? 0.09f : 0.05f)) << 24);
-                    cv.drawRoundRect(BX, rad + e, rad + e, P);
-                }
-                cv.restore();
-                glass(cv, l, t, r, b, f, 1f, c.tabItemColor, selected);
+                float f = Math.min(100, c.tabItemBg) / 100f;
+                drawGlass(cv, l, t, r, b, f, 1f, c.tabItemColor, selected, true); // 投影 + 玻璃，一张缓存位图
             } catch (Throwable ignored) {
             }
         }
@@ -470,7 +529,7 @@ final class TabGlass {
                 if (R <= L || B <= T) return;
                 float cy = (T + B) / 2f, half = (B - T) * c.tabItemH / 100f / 2f + c.tabRowPadY * dpf(0.5f);
                 float gap = c.tabGap * dpf(0.5f) / 2f, px = c.tabRowPadX * dpf(0.5f); // 最外面的标签玻璃的外沿 = 标签框外沿往里缩缝的一半
-                glass(cv, L + gap - px, cy - half, R - gap + px, cy + half, Math.min(100, c.tabRowBg) / 100f, 0.75f, c.tabRowColor, false);
+                drawGlass(cv, L + gap - px, cy - half, R - gap + px, cy + half, Math.min(100, c.tabRowBg) / 100f, 0.75f, c.tabRowColor, false, false);
             } catch (Throwable ignored) {
             }
         }

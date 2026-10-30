@@ -77,7 +77,7 @@ public class MainActivity extends Activity {
     private PctField tabRowF, tabItemF, tabShF;
     private ColorField tabRowColorF, tabItemColorF, tabTextColorF, tabTextSelColorF;
     private CheckBox cbTabCenter, cbBotGlass, cbTabGlass, cbIconPlate, cbIconFill;
-    private PctField iconBgF, iconSizeF;
+    private PctField iconBgF, iconSizeF, iconGlyphF;
     private HalfDpField tabShRF, tabShDyF, tabGapF, tabRowPadXF, tabRowPadYF;
     private PctField tabItemHF;
     private HalfDpField tabSpreadF;
@@ -413,6 +413,7 @@ public class MainActivity extends Activity {
 
         iconBgF = new PctField(35);
         iconSizeF = new PctField(100);
+        iconGlyphF = new PctField(56);
         Section sIcon = new Section("右侧按钮液态玻璃", false, null, () -> (cbIconPlate != null && cbIconPlate.isChecked() ? "底板 " + (iconBgF.v == 0 ? "关" : iconBgF.v + "%") : "无底板") + " · " + (cbIconFill != null && cbIconFill.isChecked() ? "图标加玻璃" : "图标不变"));
         cbIconPlate = new CheckBox(this);
         cbIconPlate.setText("每个图标后面垫一块圆形玻璃");
@@ -424,20 +425,17 @@ public class MainActivity extends Activity {
         sIcon.body.addView(settingRow("底板 不透明度", iconBgF.build()));
         sIcon.body.addView(rowLine());
         sIcon.body.addView(settingRow("底板 大小（占图标框，最大 100%）", iconSizeF.build()));
+        sIcon.body.addView(rowLine());
+        sIcon.body.addView(settingRow("玻璃图标 大小", iconGlyphF.build()));
         sIcon.body.addView(note("底板画在图标框里面，不能比框大；图标几乎占满框时（点赞、评论），调小底板会让图标外圈露出来。点赞 / 评论 / 收藏的底板用偏深的底色，让白色图标衬出来，分享保持白色。"));
         sIcon.body.addView(rowLine());
         cbIconFill = new CheckBox(this);
-        cbIconFill.setText("图标本身加玻璃的明暗");
+        cbIconFill.setText("图标换成自己画的玻璃图标（心 / 气泡 / 星 / 箭头）");
         cbIconFill.setTextSize(15);
         cbIconFill.setTextColor(cText);
         cbIconFill.setOnCheckedChangeListener((b, on) -> refreshSummaries());
         sIcon.body.addView(cbIconFill);
-        sIcon.body.addView(note("在图标已经画出的像素上叠一层上亮下暗的渐变（只作用在图标上，不影响底板外面）。会给这几个图标开硬件图层；图标自己如果在控件范围外画东西（点赞的爆发效果之类），会被裁掉，发现不对就关掉这一项。"));
-        place(sIcon);
-
-        etIdle = field();
-        etIdle.setInputType(InputType.TYPE_CLASS_NUMBER);
-        etIdle.setHint("分钟，0 = 关闭");
+        sIcon.body.addView(note("原来的图标藏起来（不画），在上面自己画一个玻璃图标：半透明、上亮下透、柔和内发光、亮边、柔影。点赞后变红、收藏后变黄（状态从外层按钮的无障碍描述「已点赞 / 已选中」读，读不到就按未选中画）。玻璃只画一次缓存成硬件位图。抖音自己的点赞爆发动画如果画在这个控件里，会一起被藏掉，发现不对就关掉这一项。");
         watch(etIdle);
         Section sIdle = new Section("无操作自动退出", false, null, () -> {
             String t = etIdle.getText().toString().trim();
@@ -942,6 +940,7 @@ public class MainActivity extends Activity {
         cbIconFill.setChecked(c.iconFill);
         iconBgF.set(c.iconBg);
         iconSizeF.set(c.iconSize);
+        iconGlyphF.set(c.iconGlyph);
         cbTabGlass.setChecked(c.tabGlass);
         tabTextColorF.set(c.tabTextColor);
         tabTextSelColorF.set(c.tabTextSelColor);
@@ -1017,6 +1016,7 @@ public class MainActivity extends Activity {
         c.iconFill = cbIconFill.isChecked();
         c.iconBg = iconBgF.v;
         c.iconSize = Math.max(20, iconSizeF.v);
+        c.iconGlyph = Math.max(20, iconGlyphF.v);
         c.tabGlass = cbTabGlass.isChecked();
         c.tabTextColor = tabTextColorF.color;
         c.tabTextSelColor = tabTextSelColorF.color;

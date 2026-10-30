@@ -98,6 +98,7 @@ final class DanmakuHook {
         PubHook.tryHook(lp.classLoader);
         LiveHook.tryHook(lp.classLoader);
         LiveCardHook.tryHook(lp.classLoader);
+        IconGlass.tryHook(lp.classLoader);
         IdleExit.install();
         hookResume();
     }
@@ -184,6 +185,10 @@ final class DanmakuHook {
                         } catch (Throwable ignored) {
                         }
                         try {
+                            IconGlass.onResume();
+                        } catch (Throwable ignored) {
+                        }
+                        try {
                             HookGuard.noteVersion(a);
                         } catch (Throwable ignored) {
                         }
@@ -199,6 +204,7 @@ final class DanmakuHook {
                         PubHook.tryHook(cl);
                         LiveHook.tryHook(cl);
                         LiveCardHook.tryHook(cl);
+                        IconGlass.tryHook(cl);
                         tryInstall(cl); // Compose 类可能晚于进程启动才可用
                     } catch (Throwable ignored) {
                     }

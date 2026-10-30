@@ -2,6 +2,7 @@ package com.danmaku.randcolor;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
 import android.graphics.LinearGradient;
 import android.graphics.Matrix;
@@ -262,27 +263,56 @@ final class LineBg {
         PAINT.setShader(SHEEN);
         cv.drawPath(PATH, PAINT);
         PAINT.setShader(null);
-        // 边缘内发光：三层由外向内渐淡（0.7 / 1.8 / 3.6sp），四个方向各抠一道月牙，合起来是一圈柔和的亮带，不是一条硬线，中间留给文字
-        float g3 = GLOW3_SP * sd, g2 = GLOW2_SP * sd, g1 = GLOW1_SP * sd;
-        int w3 = 0xFFFFFF | (a * 8 / 100) << 24, w2 = 0xFFFFFF | (a * 14 / 100) << 24, w1 = 0xFFFFFF | (a * 28 / 100) << 24;
-        rim(cv, 0f, g3, w3);
-        rim(cv, 0f, -g3, w3);
-        rim(cv, g3, 0f, w3);
-        rim(cv, -g3, 0f, w3);
-        rim(cv, 0f, g2, w2);
-        rim(cv, 0f, -g2, w2);
-        rim(cv, g2, 0f, w2);
-        rim(cv, -g2, 0f, w2);
-        rim(cv, 0f, g1, w1);
-        rim(cv, 0f, -g1, w1);
-        rim(cv, g1, 0f, w1);
-        rim(cv, -g1, 0f, w1);
-        // 色散：左上沿一道偏青、右下沿一道偏暖的细边，像玻璃边缘把背景拉开了颜色
+        // 1.44.12 起和 TabGlass.glass() 同一套画法（不做折射）：本体的底色 / 磨砂 / 高光渐变照旧（白字要靠它保证看得清），边缘换成下面这些。
+        // 位图左端 | 中间平直段 | 右端三份等宽、中间段会被横向拉伸，所以亮度只沿竖向变（左右一致），上沿高光放在靠左的位置。
+        PATH.computeBounds(BOX, false);
+        float bt = BOX.top, bb = BOX.bottom, bh = BOX.height(), bl = BOX.left, br = BOX.right;
+        LinearGradient glowG = new LinearGradient(0f, bt, 0f, bb,
+                new int[]{0xFFFFFFFF, 0x80FFFFFF, 0x1AFFFFFF, 0x66FFFFFF}, new float[]{0f, 0.35f, 0.7f, 1f}, Shader.TileMode.CLAMP);
+        // 沿边缘往里的柔和内发光：形状里面画一条虚化的描边（外半截被裁掉）
+        float gw = Math.max(2f, bh * 0.30f);
+        Paint gp = new Paint(Paint.ANTI_ALIAS_FLAG);
+        gp.setStyle(Paint.Style.STROKE);
+        gp.setStrokeWidth(gw);
+        gp.setShader(glowG);
+        gp.setColor(0xFFFFFFFF);
+        gp.setAlpha(a * 62 / 100);
+        gp.setMaskFilter(new BlurMaskFilter(Math.max(1f, gw * 0.5f), BlurMaskFilter.Blur.NORMAL));
+        float rad = bh / 2f;
+        cv.save();
+        cv.clipPath(PATH);
+        cv.drawRoundRect(BOX, rad, rad, gp);
+        cv.restore();
+        // 最外一圈细而清晰的亮线
+        float lw = Math.max(1f, 0.45f * sd);
+        LinearGradient lineG = new LinearGradient(0f, bt, 0f, bb,
+                new int[]{0xFFFFFFFF, 0x99FFFFFF, 0x33FFFFFF, 0xB3FFFFFF}, new float[]{0f, 0.3f, 0.62f, 1f}, Shader.TileMode.CLAMP);
+        PAINT.setStyle(Paint.Style.STROKE);
+        PAINT.setStrokeWidth(lw);
+        PAINT.setShader(lineG);
+        PAINT.setColor(0xFFFFFFFF);
+        PAINT.setAlpha(a * 90 / 100);
+        RectF in = new RectF(bl + lw / 2f, bt + lw / 2f, br - lw / 2f, bb - lw / 2f);
+        cv.drawRoundRect(in, Math.max(0f, rad - lw / 2f), Math.max(0f, rad - lw / 2f), PAINT);
+        PAINT.setShader(null);
+        PAINT.setStyle(Paint.Style.FILL);
+        // 上沿靠左的一条高光：左亮右渐隐
+        float hx0 = bl + bh * 0.35f, hx1 = bl + (br - bl) * 0.55f, hy = bt + bh * 0.09f, hh = bh * 0.2f;
+        if (hx1 - hx0 > bh * 0.3f) {
+            LinearGradient hg = new LinearGradient(hx0, 0f, hx1, 0f, new int[]{0xCCFFFFFF, 0x00FFFFFF}, null, Shader.TileMode.CLAMP);
+            PAINT.setShader(hg);
+            PAINT.setColor(0xFFFFFFFF);
+            PAINT.setAlpha(a * 85 / 100);
+            in.set(hx0, hy, hx1, hy + hh);
+            cv.drawRoundRect(in, hh / 2f, hh / 2f, PAINT);
+            PAINT.setShader(null);
+        }
+        // 下沿折射回来的亮弧、色散（月牙）；rim 用 BOX，上面没改它
         float dd = DISP_SP * sd;
-        rim(cv, dd, dd, 0x80E0FF | (a * 22 / 100) << 24);
-        rim(cv, -dd, -dd, 0xFFB070 | (a * 22 / 100) << 24);
-        // 顶部高光：比四周的发光稍亮一点点，只是让上沿有受光的感觉，不再是一条白线
-        rim(cv, 0f, RIM_TOP_SP * sd, 0xFFFFFF | (a * 22 / 100) << 24);
+        rim(cv, 0f, -dd * 1.3f, 0xFFFFFF | (a * 30 / 100) << 24);
+        rim(cv, dd, dd, 0x80E0FF | (a * 22 / 100) << 24); // 左上偏青
+        rim(cv, -dd, -dd, 0xFFB070 | (a * 22 / 100) << 24); // 右下偏暖
+        PAINT.setStyle(Paint.Style.FILL);
     }
 
     /** 在 PATH 里面画一道亮边：把 PATH 错开 (dx, dy) 再抠掉，剩下的是错开方向反侧的一道月牙（dy > 0 是上沿、dy < 0 是下沿、dx > 0 是左沿、dx < 0 是右沿）；argb 是这道亮边的颜色（含透明度）。PATH 画完会移回原位。 */

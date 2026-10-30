@@ -50,9 +50,6 @@ final class IconGlass {
     /** 收藏控件 174×174，图标只占中间一块（比另外三个的 103×103 大 1.7 倍），底板按 103/174 缩小，四个底板一样大。 */
     private static final int COLLECT = 2;
     private static final float COLLECT_RATIO = 103f / 174f; // 四个底板一样大
-    private static final int SHARE = 3;
-    /** 点赞 / 评论 / 收藏的图标是白色的，底板偏白会糊在一起，这三个用偏深的玻璃底色；分享（效果好的）保持白色。 */
-    private static final int DARK = 0x39425A;
     private static final int MAX_VIEWS = 24;
     private static final int ATTACH_TAG = 0x7e0b0c0c;
 
@@ -150,7 +147,7 @@ final class IconGlass {
         if (c.iconPlate && c.iconBg > 0) {
             if (bg == null) {
                 String n = v.getClass().getName();
-                v.setBackground(new Plate(n.equals(CLS[COLLECT]) ? COLLECT_RATIO : 1f, n.equals(CLS[SHARE]) ? 0 : DARK));
+                v.setBackground(new Plate(n.equals(CLS[COLLECT]) ? COLLECT_RATIO : 1f, 0));
             }
         } else if (bg instanceof Plate) {
             v.setBackground(null);
@@ -159,7 +156,6 @@ final class IconGlass {
         if (c.iconFill) {
             if (fg == null) {
                 v.setForeground(new Glyph(kindOf(v)));
-                if (v instanceof ImageView) ((ImageView) v).setImageAlpha(0); // 原图标藏起来（不画），由 Glyph 重画
             }
         } else if (fg instanceof Glyph) {
             v.setForeground(null);
@@ -227,6 +223,7 @@ final class IconGlass {
         private static final int[] KEY = new int[N];
         private static int next;
         private final int kind;
+        private boolean hidden;
 
         Glyph(int kind) {
             this.kind = kind;
@@ -243,8 +240,8 @@ final class IconGlass {
                 if (s < 8) return;
                 int on = 0;
                 if (kind == K_DIGG || kind == K_COLLECT) {
-                    Callback cb = getCallback();
-                    if (cb instanceof View && isOn((View) cb, kind == K_DIGG ? "已点赞" : "已选中")) on = 1;
+                    Callback cb0 = getCallback();
+                    if (cb0 instanceof View && isOn((View) cb0, kind == K_DIGG ? "已点赞" : "已选中")) on = 1;
                 }
                 int key = (kind << 28) | (on << 24) | s;
                 Bitmap bm = null;
@@ -263,6 +260,11 @@ final class IconGlass {
                 }
                 int m = (bm.getWidth() - s) / 2;
                 cv.drawBitmap(bm, Math.round(bd.exactCenterX() - s / 2f) - m, Math.round(bd.exactCenterY() - s / 2f) - m, null);
+                if (!hidden) { // 玻璃图标真的画出来之后，才把原图标藏起来（画不出来时原图标还在，一眼能看出是哪个控件的前景没画）
+                    hidden = true;
+                    Callback cb = getCallback();
+                    if (cb instanceof ImageView) ((ImageView) cb).setImageAlpha(0);
+                }
             } catch (Throwable ignored) {
             }
         }
@@ -328,44 +330,64 @@ final class IconGlass {
             return p;
         }
 
-        /** 玻璃图标位图：软件画一次（柔影 → 渐变半透明体 → 内发光 → 亮边），转成硬件位图。四周留 s×0.12 给影子和模糊。 */
+        /** 玻璃图标位图：软件画一次，画法和顶部标签的玻璃（TabGlass.glass）是同一套：薄雾本体 → 竖向高光 → 柔和内发光 → 清晰亮线 → 左上高光 → 下缘弧光和色散；再转成硬件位图。四周留 s×0.14 给影子和模糊。 */
         private static Bitmap render(int kind, boolean on, int s) {
-            int m = Math.max(2, Math.round(s * .12f));
+            int m = Math.max(2, Math.round(s * .14f));
             int w = s + 2 * m;
             Bitmap sw = Bitmap.createBitmap(w, w, Bitmap.Config.ARGB_8888);
             Canvas cv = new Canvas(sw);
             cv.translate(m, m);
             Path p = shape(kind, s);
-            int base = on ? (kind == K_DIGG ? 0xFF2D55 : 0xFFC83A) : 0xFFFFFF;
+            float d = TabGlass.dpf(1f);
+            int tint = on ? (kind == K_DIGG ? 0xFF2D55 : 0xFFC83A) : 0xFFFFFF;
             Paint pt = new Paint(Paint.ANTI_ALIAS_FLAG);
-            // 柔影
+            // 柔影（很淡，只为在亮画面上托住形状）
             cv.save();
             cv.translate(0f, s * .03f);
             pt.setStyle(Paint.Style.FILL);
-            pt.setColor(0x59101828);
+            pt.setColor(0x33101828);
             pt.setMaskFilter(new BlurMaskFilter(Math.max(1f, s * .05f), BlurMaskFilter.Blur.NORMAL));
             cv.drawPath(p, pt);
             cv.restore();
             pt.setMaskFilter(null);
-            // 半透明体：上亮下透
-            pt.setShader(new LinearGradient(0f, 0f, 0f, s, (base & 0xFFFFFF) | 0xE6000000, (mix(base, 0xB4D2FF, .35f) & 0xFFFFFF) | 0x73000000, Shader.TileMode.CLAMP));
+            // 本体：薄雾（已点赞 / 已收藏时掺上颜色）
+            pt.setColor(((on ? 0x80 : 0x38) << 24) | tint);
+            cv.drawPath(p, pt);
+            // 竖向高光
+            pt.setShader(new LinearGradient(0f, 0f, 0f, s, new int[]{0x99FFFFFF, 0x24FFFFFF, 0x10FFFFFF, 0x4DFFFFFF}, new float[]{0f, .45f, .7f, 1f}, Shader.TileMode.CLAMP));
             cv.drawPath(p, pt);
             pt.setShader(null);
-            // 内发光
+            // 柔和内发光（左上宽而亮）
+            float gw = Math.max(3f * d, s * .18f);
+            LinearGradient glowG = new LinearGradient(s * .15f, 0f, s * .15f + s * .9f, s,
+                    new int[]{0xFFFFFFFF, 0x80FFFFFF, 0x1AFFFFFF, 0x66FFFFFF}, new float[]{0f, .32f, .66f, 1f}, Shader.TileMode.CLAMP);
+            Paint gp = new Paint(Paint.ANTI_ALIAS_FLAG);
+            gp.setStyle(Paint.Style.STROKE);
+            gp.setStrokeWidth(gw);
+            gp.setStrokeJoin(Paint.Join.ROUND);
+            gp.setShader(glowG);
+            gp.setAlpha(170);
+            gp.setMaskFilter(new BlurMaskFilter(Math.max(1f, gw * .5f), BlurMaskFilter.Blur.NORMAL));
             cv.save();
             cv.clipPath(p);
-            pt.setStyle(Paint.Style.STROKE);
-            pt.setStrokeWidth(s * .14f);
-            pt.setStrokeJoin(Paint.Join.ROUND);
-            pt.setColor(0x99FFFFFF);
-            pt.setMaskFilter(new BlurMaskFilter(Math.max(1f, s * .06f), BlurMaskFilter.Blur.NORMAL));
-            cv.drawPath(p, pt);
+            cv.drawPath(p, gp);
+            // 左上一条高光
+            Paint hp = new Paint(Paint.ANTI_ALIAS_FLAG);
+            hp.setShader(new LinearGradient(s * .14f, 0f, s * .55f, 0f, new int[]{0xCCFFFFFF, 0x00FFFFFF}, null, Shader.TileMode.CLAMP));
+            cv.drawRoundRect(new RectF(s * .14f, s * .1f, s * .55f, s * .1f + s * .1f), s * .05f, s * .05f, hp);
             cv.restore();
-            pt.setMaskFilter(null);
-            // 亮边：上亮下淡
-            pt.setStrokeWidth(Math.max(1f, s * .035f));
-            pt.setShader(new LinearGradient(0f, 0f, 0f, s, 0xF2FFFFFF, 0x66FFFFFF, Shader.TileMode.CLAMP));
-            cv.drawPath(p, pt);
+            // 清晰亮线
+            Paint lp = new Paint(Paint.ANTI_ALIAS_FLAG);
+            lp.setStyle(Paint.Style.STROKE);
+            lp.setStrokeJoin(Paint.Join.ROUND);
+            lp.setStrokeWidth(Math.max(1f, d * 1.2f));
+            lp.setShader(new LinearGradient(s * .15f, 0f, s * .15f + s * .9f, s,
+                    new int[]{0xFFFFFFFF, 0x99FFFFFF, 0x33FFFFFF, 0xB3FFFFFF}, new float[]{0f, .3f, .62f, 1f}, Shader.TileMode.CLAMP));
+            cv.drawPath(p, lp);
+            // 下缘折射亮弧、左上偏青 / 右下偏暖的色散细边（月牙：把形状错开再抠掉）
+            crescent(cv, p, 0f, -1.8f * d, 0x4DFFFFFF, s);
+            crescent(cv, p, d, d, 0x3880E0FF, s);
+            crescent(cv, p, -d, -d, 0x38FFB070, s);
             try {
                 return sw.copy(Bitmap.Config.HARDWARE, false);
             } catch (Throwable t) {
@@ -373,11 +395,16 @@ final class IconGlass {
             }
         }
 
-        private static int mix(int a, int b, float f) {
-            int r = Math.round(((a >> 16) & 255) * (1 - f) + ((b >> 16) & 255) * f);
-            int g = Math.round(((a >> 8) & 255) * (1 - f) + ((b >> 8) & 255) * f);
-            int bl = Math.round((a & 255) * (1 - f) + (b & 255) * f);
-            return (r << 16) | (g << 8) | bl;
+        private static void crescent(Canvas cv, Path p, float dx, float dy, int argb, int s) {
+            Path q = new Path(p);
+            q.offset(dx, dy);
+            Paint pt = new Paint(Paint.ANTI_ALIAS_FLAG);
+            pt.setColor(argb);
+            cv.save();
+            cv.clipPath(p);
+            cv.clipOutPath(q);
+            cv.drawRect(-s, -s, 2f * s, 2f * s, pt);
+            cv.restore();
         }
     }
 }

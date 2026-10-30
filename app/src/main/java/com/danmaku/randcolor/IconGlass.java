@@ -310,8 +310,10 @@ final class IconGlass {
                 int s = Math.round(unit * Math.max(20, Math.min(200, c.iconGlyph)) / 100f);
                 if (s < 8) return;
                 int on = 0;
-                if (kind == K_DIGG || kind == K_COLLECT) {
-                    if (isOn(v, kind == K_DIGG ? "已点赞" : "已选中")) on = 1;
+                if (kind == K_DIGG) {
+                    if (v.isSelected()) on = 1; // TextRec：点赞时 DiggAnimationView / DiggAnimationLayout 都会 setSelected(true)
+                } else if (kind == K_COLLECT) {
+                    if (isOn(v, "已选中")) on = 1;
                 }
                 int key = (kind << 28) | (on << 24) | s;
                 Bitmap bm = null;

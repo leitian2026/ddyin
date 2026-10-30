@@ -145,7 +145,7 @@ final class BotGlass {
                 float d = TabGlass.dpf(0.5f);
                 float cy = (T + B) / 2f, half = (B - T) * c.tabItemH / 100f / 2f + c.tabRowPadY * d;
                 float gap = c.tabGap * d / 2f, px = c.tabRowPadX * d;
-                TabGlass.glass(cv, L + gap - px, cy - half, R - gap + px, cy + half, Math.min(100, c.tabRowBg) / 100f, 0.75f, c.tabRowColor, false);
+                TabGlass.drawGlass(cv, L + gap - px, cy - half, R - gap + px, cy + half, Math.min(100, c.tabRowBg) / 100f, 0.75f, c.tabRowColor, false, false);
             } catch (Throwable ignored) {
             }
         }

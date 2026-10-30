@@ -64,6 +64,9 @@ public final class DanmakuConfig {
     public boolean tabCenter = true;
     /** 底部导航（首页 / 朋友 / 消息 / 我）也加和顶部标签同一套液态玻璃（用 tabRow* / tabItem* / tabGap / tabItemH 这些设置）。见 BotGlass。 */
     public boolean botGlass = true;
+    /** 右侧按钮列（点赞 / 评论 / 收藏 / 分享）的液态玻璃图标：iconPlate = 每个图标后面垫一块圆形玻璃（不透明度 iconBg，0～100）；iconFill = 图标本身加玻璃的明暗。见 IconGlass。 */
+    public boolean iconPlate = true, iconFill = true;
+    public int iconBg = 35;
     /** 首页顶部标签的液态玻璃（整行 + 每个标签）总开关；关 = 顶部不画玻璃（字的投影、撑开间距、居中、文字颜色不受影响）。底部导航另有 botGlass。 */
     public boolean tabGlass = true;
     /** 标签文字颜色（0xAARRGGBB，不透明）：未选中 / 选中的标签各一个；0 = 不改抖音原来的。见 TabGlass.colorAll。 */
@@ -166,6 +169,9 @@ public final class DanmakuConfig {
             p.setProperty("tabSpread", String.valueOf(tabSpread));
             p.setProperty("tabCenter", String.valueOf(tabCenter));
             p.setProperty("botGlass", String.valueOf(botGlass));
+            p.setProperty("iconPlate", String.valueOf(iconPlate));
+            p.setProperty("iconFill", String.valueOf(iconFill));
+            p.setProperty("iconBg", String.valueOf(iconBg));
             p.setProperty("tabGlass", String.valueOf(tabGlass));
             p.setProperty("tabTextColor", String.valueOf(tabTextColor));
             p.setProperty("tabTextSelColor", String.valueOf(tabTextSelColor));
@@ -309,6 +315,9 @@ public final class DanmakuConfig {
         c.tabSpread = Math.max(0, Math.min(60, parseIntOr(p.getProperty("tabSpread", "0"), 0)));
         c.tabCenter = Boolean.parseBoolean(p.getProperty("tabCenter", "true").trim());
         c.botGlass = Boolean.parseBoolean(p.getProperty("botGlass", "true").trim());
+        c.iconPlate = Boolean.parseBoolean(p.getProperty("iconPlate", "true").trim());
+        c.iconFill = Boolean.parseBoolean(p.getProperty("iconFill", "true").trim());
+        c.iconBg = Math.max(0, Math.min(100, parseIntOr(p.getProperty("iconBg", "35"), 35)));
         c.tabGlass = Boolean.parseBoolean(p.getProperty("tabGlass", "true").trim());
         c.tabTextColor = parseColor(p.getProperty("tabTextColor", "0"));
         c.tabTextSelColor = parseColor(p.getProperty("tabTextSelColor", "0"));

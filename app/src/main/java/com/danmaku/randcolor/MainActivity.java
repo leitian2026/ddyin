@@ -76,7 +76,8 @@ public class MainActivity extends Activity {
     private HalfDpField shRF, shDyF;
     private PctField tabRowF, tabItemF, tabShF;
     private ColorField tabRowColorF, tabItemColorF, tabTextColorF, tabTextSelColorF;
-    private CheckBox cbTabCenter, cbBotGlass, cbTabGlass;
+    private CheckBox cbTabCenter, cbBotGlass, cbTabGlass, cbIconPlate, cbIconFill;
+    private PctField iconBgF;
     private HalfDpField tabShRF, tabShDyF, tabGapF, tabRowPadXF, tabRowPadYF;
     private PctField tabItemHF;
     private HalfDpField tabSpreadF;
@@ -409,6 +410,26 @@ public class MainActivity extends Activity {
         sTabGlass.body.addView(settingRow("投影下移", tabShDyF.build()));
         sTabGlass.body.addView(note("标签字的黑色投影，含义同文字底条里的投影设置；0% = 不碰抖音自己的字投影。玻璃的大小是按截图估的（标签框四周缩进、整行两侧各多一点），上机后不合适告诉我再调。"));
         place(sTabGlass);
+
+        iconBgF = new PctField(35);
+        Section sIcon = new Section("右侧按钮液态玻璃", false, null, () -> (cbIconPlate != null && cbIconPlate.isChecked() ? "底板 " + (iconBgF.v == 0 ? "关" : iconBgF.v + "%") : "无底板") + " · " + (cbIconFill != null && cbIconFill.isChecked() ? "图标加玻璃" : "图标不变"));
+        cbIconPlate = new CheckBox(this);
+        cbIconPlate.setText("每个图标后面垫一块圆形玻璃");
+        cbIconPlate.setTextSize(15);
+        cbIconPlate.setTextColor(cText);
+        cbIconPlate.setOnCheckedChangeListener((b, on) -> refreshSummaries());
+        sIcon.body.addView(cbIconPlate);
+        sIcon.body.addView(note("作用在右侧那一列：点赞、评论、收藏、分享。画法和顶部标签的玻璃一样（偏白的薄雾 + 柔和内发光 + 亮线），缓存成硬件位图，运行时只是一次绘制。头像不动。第一次打开这个设置要回到抖音前台一次才生效。"));
+        sIcon.body.addView(settingRow("底板 不透明度", iconBgF.build()));
+        sIcon.body.addView(rowLine());
+        cbIconFill = new CheckBox(this);
+        cbIconFill.setText("图标本身加玻璃的明暗");
+        cbIconFill.setTextSize(15);
+        cbIconFill.setTextColor(cText);
+        cbIconFill.setOnCheckedChangeListener((b, on) -> refreshSummaries());
+        sIcon.body.addView(cbIconFill);
+        sIcon.body.addView(note("在图标已经画出的像素上叠一层上亮下暗的渐变（只作用在图标上，不影响底板外面）。会给这几个图标开硬件图层；图标自己如果在控件范围外画东西（点赞的爆发效果之类），会被裁掉，发现不对就关掉这一项。"));
+        place(sIcon);
 
         etIdle = field();
         etIdle.setInputType(InputType.TYPE_CLASS_NUMBER);
@@ -913,6 +934,9 @@ public class MainActivity extends Activity {
         tabSpreadF.set(c.tabSpread);
         cbTabCenter.setChecked(c.tabCenter);
         cbBotGlass.setChecked(c.botGlass);
+        cbIconPlate.setChecked(c.iconPlate);
+        cbIconFill.setChecked(c.iconFill);
+        iconBgF.set(c.iconBg);
         cbTabGlass.setChecked(c.tabGlass);
         tabTextColorF.set(c.tabTextColor);
         tabTextSelColorF.set(c.tabTextSelColor);
@@ -984,6 +1008,9 @@ public class MainActivity extends Activity {
         c.tabSpread = tabSpreadF.v;
         c.tabCenter = cbTabCenter.isChecked();
         c.botGlass = cbBotGlass.isChecked();
+        c.iconPlate = cbIconPlate.isChecked();
+        c.iconFill = cbIconFill.isChecked();
+        c.iconBg = iconBgF.v;
         c.tabGlass = cbTabGlass.isChecked();
         c.tabTextColor = tabTextColorF.color;
         c.tabTextSelColor = tabTextSelColorF.color;
@@ -1280,6 +1307,7 @@ public class MainActivity extends Activity {
             {"tab.hide", "首页顶部标签隐藏"},
             {"tab.bottom", "首页底部导航液态玻璃：认「首页 / 朋友 / 消息 / 我」的选中状态（DuxTextView#setAlpha）"},
             {"live.card", "音量条：推荐流里的直播预览卡（LivePreviewFrameLayout 构造）"},
+            {"icon.glass", "右侧按钮液态玻璃：点赞 / 评论 / 收藏 / 分享图标的类（构造）"},
             {"pub.bind", "发布日期地点 / 视频时长：翻页绑定（视频数据 + 页面容器）"},
             {"pub.text", "视频文案：改色 / 底条 / 接手容器（上顶、文案下方位置）（设置文字时）"},
             {"pub.anchor", "视频文案：认文案控件 / 容器 / 页面根的类（上顶、改色、底条都要）"},

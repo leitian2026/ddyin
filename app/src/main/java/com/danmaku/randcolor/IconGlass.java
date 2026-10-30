@@ -12,6 +12,7 @@ import android.graphics.Shader;
 import android.graphics.drawable.Drawable;
 import android.os.Looper;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.widget.ImageView;
 
@@ -51,24 +52,32 @@ final class IconGlass {
     private static final int COLLECT = 2;
     private static final float COLLECT_RATIO = 103f / 174f; // 四个底板一样大
     private static final int MAX_VIEWS = 24;
-    private static final int ATTACH_TAG = 0x7e0b0c0c;
+    private static final int ATTACH_TAG = 0x7e0b0c0c, HID_TAG = 0x7e0b0c0d, HOLDER_TAG = 0x7e0b0c0e;
 
     private static final XC_MethodHook HOOK = new CtorHook();
     private static volatile Class<?>[] classes;
+    private static volatile Class<?> collectCls;
     /** 见过的图标控件（弱引用），回到前台按新配置重套；主线程用。 */
     private static final ArrayList<WeakReference<View>> VIEWS = new ArrayList<>();
 
     /** 启动时和每次回到前台都会被调用；HookGuard 保证已有结论后立刻返回。 */
     static void tryHook(ClassLoader cl) {
-        if (cl == null || HookGuard.settled(HookGuard.ICON_GLASS)) return;
+        if (cl == null) return;
         DanmakuConfig cf = DanmakuHook.cfg;
         if (!cf.iconPlate && !cf.iconFill) return; // 都没开：不挂（没有结论，打开后回到前台再挂）
+        hookViews(cl);
+        if (collectCls != null) hookLottie(cl);
+    }
+
+    private static void hookViews(ClassLoader cl) {
+        if (HookGuard.settled(HookGuard.ICON_GLASS)) return;
         Class<?>[] cs = new Class<?>[CLS.length];
         for (int i = 0; i < CLS.length; i++) {
             cs[i] = HookGuard.find(HookGuard.ICON_GLASS, CLS[i], cl);
             if (cs[i] == null) return; // 有一个类还没找到：下次回到前台再试
         }
         classes = cs; // 先赋值再挂钩
+        collectCls = cs[COLLECT];
         int n = 0;
         try {
             for (Class<?> c : cs) {
@@ -80,14 +89,55 @@ final class IconGlass {
                     }
                 }
             }
+            // 抖音点赞时会自己 setImageAlpha(254)，把我们藏图标的 0 盖掉：只对已经被我们藏起来的控件，把传进来的值改回 0
+            XposedBridge.hookMethod(ImageView.class.getDeclaredMethod("setImageAlpha", int.class), ALPHA);
         } catch (Throwable t) { // 构造方法签名里引用的类还没就绪
             classes = null;
+            collectCls = null;
             HookGuard.waitFail(HookGuard.ICON_GLASS);
             return;
         }
         if (n > 0) HookGuard.ok(HookGuard.ICON_GLASS, "");
         else HookGuard.miss(HookGuard.ICON_GLASS, "右侧图标的类里没有构造方法可挂（点赞 / 评论 / 收藏 / 分享图标的类变了，需要重新用 TextRec 导出右侧按钮列的视图树）");
     }
+
+    /**
+     * 收藏控件是 LottieAnimationView（TextRec 导出里是 LottieDrawable），它的背景 / 前景没有被画出来（父级链里有抖音自己的 HPFrameLayout，是否它不走系统的 draw 没验证），
+     * 所以收藏的底板和玻璃图标改成画在 LottieDrawable.draw 之后（经过 ImageView.onDraw，一定会走）。只对「回调是收藏控件」的那一个 drawable 处理，其余 Lottie 一次类比较就放行。
+     */
+    private static void hookLottie(ClassLoader cl) {
+        HookGuard.hook(HookGuard.ICON_LOTTIE, "com.airbnb.lottie.LottieDrawable",
+                m -> m.getName().equals("draw") && m.getParameterTypes().length == 1 && m.getParameterTypes()[0] == Canvas.class,
+                LOTTIE, "收藏图标的 LottieDrawable.draw(Canvas) 没找到（Lottie 版本变了），收藏图标没有玻璃", cl);
+    }
+
+    private static final XC_MethodHook ALPHA = new XC_MethodHook() {
+        @Override
+        protected void beforeHookedMethod(MethodHookParam p) {
+            try {
+                if (p.thisObject instanceof View && ((View) p.thisObject).getTag(HID_TAG) != null) p.args[0] = 0;
+            } catch (Throwable ignored) {
+            }
+        }
+    };
+
+    private static final XC_MethodHook LOTTIE = new XC_MethodHook() {
+        @Override
+        protected void afterHookedMethod(MethodHookParam p) {
+            try {
+                Drawable d = (Drawable) p.thisObject;
+                Drawable.Callback cb = d.getCallback();
+                Class<?> k = collectCls;
+                if (cb == null || cb.getClass() != k) return;
+                Canvas cv = (Canvas) p.args[0];
+                DanmakuConfig c = DanmakuHook.cfg;
+                Rect bd = d.getBounds();
+                if (c.iconPlate) drawPlate(cv, bd, COLLECT_RATIO, 0);
+                if (c.iconFill) Glyph.paint(cv, bd, K_COLLECT, (View) cb);
+            } catch (Throwable ignored) {
+            }
+        }
+    };
 
     private static final class CtorHook extends XC_MethodHook {
         @Override
@@ -143,6 +193,13 @@ final class IconGlass {
     /** 按当前配置套上 / 撤掉底板和图标玻璃（只动我们自己加的；控件原来就有背景 / 前景时不覆盖）。主线程。 */
     private static void apply(View v) {
         DanmakuConfig c = DanmakuHook.cfg;
+        if (v.getClass() == collectCls) { // 收藏：画在 LottieDrawable.draw 里，不用背景 / 前景
+            if (!c.iconFill && v.getTag(HID_TAG) != null) {
+                v.setTag(HID_TAG, null);
+                if (v instanceof ImageView) ((ImageView) v).setImageAlpha(255);
+            }
+            return;
+        }
         Drawable bg = v.getBackground();
         if (c.iconPlate && c.iconBg > 0) {
             if (bg == null) {
@@ -156,9 +213,16 @@ final class IconGlass {
         if (c.iconFill) {
             if (fg == null) {
                 v.setForeground(new Glyph(kindOf(v)));
+                ViewParent p = v.getParent(); // 玻璃图标比图标框大时不被父级裁掉（最多 3 层）
+                for (int i = 0; i < 3 && p instanceof ViewGroup; i++) {
+                    ((ViewGroup) p).setClipChildren(false);
+                    ((ViewGroup) p).setClipToPadding(false);
+                    p = p.getParent();
+                }
             }
         } else if (fg instanceof Glyph) {
             v.setForeground(null);
+            v.setTag(HID_TAG, null);
             if (v instanceof ImageView) ((ImageView) v).setImageAlpha(255);
         }
     }
@@ -197,17 +261,20 @@ final class IconGlass {
 
         @Override
         public void draw(Canvas cv) {
-            try {
-                DanmakuConfig c = DanmakuHook.cfg;
-                int pct = Math.min(100, c.iconBg);
-                if (!c.iconPlate || pct <= 0) return;
-                Rect bd = getBounds();
-                float r = Math.min(bd.width(), bd.height()) * ratio * Math.max(20, Math.min(100, c.iconSize)) / 200f;
-                if (r < 1f) return;
-                float cx = bd.exactCenterX(), cy = bd.exactCenterY();
-                TabGlass.drawGlass(cv, cx - r, cy - r, cx + r, cy + r, pct / 100f, 1f, color, false, false);
-            } catch (Throwable ignored) {
-            }
+            drawPlate(cv, getBounds(), ratio, color);
+        }
+    }
+
+    static void drawPlate(Canvas cv, Rect bd, float ratio, int color) {
+        try {
+            DanmakuConfig c = DanmakuHook.cfg;
+            int pct = Math.min(100, c.iconBg);
+            if (!c.iconPlate || pct <= 0) return;
+            float r = Math.min(bd.width(), bd.height()) * ratio * Math.max(20, Math.min(100, c.iconSize)) / 200f;
+            if (r < 1f) return;
+            float cx = bd.exactCenterX(), cy = bd.exactCenterY();
+            TabGlass.drawGlass(cv, cx - r, cy - r, cx + r, cy + r, pct / 100f, 1f, color, false, false);
+        } catch (Throwable ignored) {
         }
     }
 
@@ -223,7 +290,6 @@ final class IconGlass {
         private static final int[] KEY = new int[N];
         private static int next;
         private final int kind;
-        private boolean hidden;
 
         Glyph(int kind) {
             this.kind = kind;
@@ -231,17 +297,21 @@ final class IconGlass {
 
         @Override
         public void draw(Canvas cv) {
+            Callback cb = getCallback();
+            if (cb instanceof View) paint(cv, getBounds(), kind, (View) cb);
+        }
+
+        /** 画一个玻璃图标（bd = 控件范围）；画出来之后才把原图标藏起来（画不出来时原图标还在）。 */
+        static void paint(Canvas cv, Rect bd, int kind, View v) {
             try {
                 DanmakuConfig c = DanmakuHook.cfg;
                 if (!c.iconFill) return;
-                Rect bd = getBounds();
                 float unit = Math.min(bd.width(), bd.height()) * (kind == K_COLLECT ? COLLECT_RATIO : 1f);
-                int s = Math.round(unit * Math.max(20, Math.min(100, c.iconGlyph)) / 100f);
+                int s = Math.round(unit * Math.max(20, Math.min(200, c.iconGlyph)) / 100f);
                 if (s < 8) return;
                 int on = 0;
                 if (kind == K_DIGG || kind == K_COLLECT) {
-                    Callback cb0 = getCallback();
-                    if (cb0 instanceof View && isOn((View) cb0, kind == K_DIGG ? "已点赞" : "已选中")) on = 1;
+                    if (isOn(v, kind == K_DIGG ? "已点赞" : "已选中")) on = 1;
                 }
                 int key = (kind << 28) | (on << 24) | s;
                 Bitmap bm = null;
@@ -260,23 +330,34 @@ final class IconGlass {
                 }
                 int m = (bm.getWidth() - s) / 2;
                 cv.drawBitmap(bm, Math.round(bd.exactCenterX() - s / 2f) - m, Math.round(bd.exactCenterY() - s / 2f) - m, null);
-                if (!hidden) { // 玻璃图标真的画出来之后，才把原图标藏起来（画不出来时原图标还在，一眼能看出是哪个控件的前景没画）
-                    hidden = true;
-                    Callback cb = getCallback();
-                    if (cb instanceof ImageView) ((ImageView) cb).setImageAlpha(0);
+                if (v.getTag(HID_TAG) == null) {
+                    v.setTag(HID_TAG, Boolean.TRUE);
+                    if (v instanceof ImageView) ((ImageView) v).setImageAlpha(0);
                 }
             } catch (Throwable ignored) {
             }
         }
 
+        /** 描述所在的那层父级只找一次（挂到窗口之后第一次画的时候），之后每次只读这一个控件的描述，不再向上找。 */
         private static boolean isOn(View v, String prefix) {
-            ViewParent p = v.getParent();
-            for (int i = 0; i < 4 && p instanceof View; i++) {
-                CharSequence d = ((View) p).getContentDescription();
-                if (d != null && d.length() > 0) return d.toString().startsWith(prefix);
-                p = p.getParent();
+            View h = null;
+            Object t = v.getTag(HOLDER_TAG);
+            if (t instanceof WeakReference) h = (View) ((WeakReference<?>) t).get();
+            if (h == null) {
+                ViewParent p = v.getParent();
+                for (int i = 0; i < 4 && p instanceof View; i++) {
+                    CharSequence d = ((View) p).getContentDescription();
+                    if (d != null && d.length() > 0) {
+                        h = (View) p;
+                        break;
+                    }
+                    p = p.getParent();
+                }
+                if (h == null) return false;
+                v.setTag(HOLDER_TAG, new WeakReference<>(h));
             }
-            return false;
+            CharSequence d = h.getContentDescription();
+            return d != null && d.toString().startsWith(prefix);
         }
 
         private static Path shape(int kind, float s) {

@@ -67,6 +67,8 @@ public final class DanmakuConfig {
     /** 右侧按钮列（点赞 / 评论 / 收藏 / 分享）的液态玻璃图标：iconPlate = 每个图标后面垫一块圆形玻璃（不透明度 iconBg，0～100）；iconFill = 图标本身加玻璃的明暗。见 IconGlass。 */
     public boolean iconPlate = true, iconFill = true;
     public int iconBg = 35;
+    /** 底板大小：占控件短边的百分比（20～100，底板画在控件范围内，不能比控件大）。 */
+    public int iconSize = 100;
     /** 首页顶部标签的液态玻璃（整行 + 每个标签）总开关；关 = 顶部不画玻璃（字的投影、撑开间距、居中、文字颜色不受影响）。底部导航另有 botGlass。 */
     public boolean tabGlass = true;
     /** 标签文字颜色（0xAARRGGBB，不透明）：未选中 / 选中的标签各一个；0 = 不改抖音原来的。见 TabGlass.colorAll。 */
@@ -172,6 +174,7 @@ public final class DanmakuConfig {
             p.setProperty("iconPlate", String.valueOf(iconPlate));
             p.setProperty("iconFill", String.valueOf(iconFill));
             p.setProperty("iconBg", String.valueOf(iconBg));
+            p.setProperty("iconSize", String.valueOf(iconSize));
             p.setProperty("tabGlass", String.valueOf(tabGlass));
             p.setProperty("tabTextColor", String.valueOf(tabTextColor));
             p.setProperty("tabTextSelColor", String.valueOf(tabTextSelColor));
@@ -318,6 +321,7 @@ public final class DanmakuConfig {
         c.iconPlate = Boolean.parseBoolean(p.getProperty("iconPlate", "true").trim());
         c.iconFill = Boolean.parseBoolean(p.getProperty("iconFill", "true").trim());
         c.iconBg = Math.max(0, Math.min(100, parseIntOr(p.getProperty("iconBg", "35"), 35)));
+        c.iconSize = Math.max(20, Math.min(100, parseIntOr(p.getProperty("iconSize", "100"), 100)));
         c.tabGlass = Boolean.parseBoolean(p.getProperty("tabGlass", "true").trim());
         c.tabTextColor = parseColor(p.getProperty("tabTextColor", "0"));
         c.tabTextSelColor = parseColor(p.getProperty("tabTextSelColor", "0"));

@@ -318,10 +318,7 @@ final class TabGlass {
     // ---- 更立体的玻璃（只给顶部标签用；文字底条的玻璃没动）。画在 Canvas 上，没有真正的背景模糊；1.44.9 起按参数缓存成硬件位图（drawGlass），glass() 只在缓存没命中时画一次。
     /** 竖向高光（单位渐变：0 = 上沿，1 = 下沿，画之前缩放到框高）：上亮、中间透、底部再亮一点（折射回来的光）。颜色里的透明度是相对值，实际强度 = 它 × 不透明度 × 层级。 */
     private static final LinearGradient SHEEN = new LinearGradient(0f, 0f, 0f, 1f,
-            new int[]{0x8CFFFFFF, 0x1AFFFFFF, 0x0DFFFFFF, 0x4DFFFFFF}, new float[]{0f, 0.45f, 0.7f, 1f}, Shader.TileMode.CLAMP);
-    /** 上半部那块弧形反光：上面亮、往下渐隐。 */
-    private static final LinearGradient GLOSS = new LinearGradient(0f, 0f, 0f, 1f,
-            new int[]{0x99FFFFFF, 0x00FFFFFF}, null, Shader.TileMode.CLAMP);
+            new int[]{0x66FFFFFF, 0x14FFFFFF, 0x0AFFFFFF, 0x2EFFFFFF}, new float[]{0f, 0.45f, 0.7f, 1f}, Shader.TileMode.CLAMP);
     private static final Matrix MX = new Matrix();
     private static final int DEF_COLOR = 0x7C7E84; // 和文字底条一样：偏白的中浅灰
 
@@ -344,22 +341,25 @@ final class TabGlass {
     }
 
     /**
-     * 一块更立体的液态玻璃（l,t,r,b = 玻璃本身的框；两端半圆）。f = 不透明度（0～1，设置页的百分比），lvl = 层级强度（标签 1，整行 0.75），color = 底色（0 = 默认中浅灰），selected = 再亮一档。
-     * 叠法（自下而上）：半透明底色（比文字底条的玻璃更透，让后面的画面透出来）→ 竖向高光渐变 → 上半部弧形反光 → 边缘光：左上亮边、右侧一道暗边、下沿折射回来的亮弧、
-     * 左上偏青 / 右下偏暖的色散细边 → 一圈 1dp 的白色细轮廓。边缘光都是把形状错开一点再抠出来的月牙，两端自然变细。
+     * 一块液态玻璃（l,t,r,b = 玻璃本身的框；两端半圆）。f = 不透明度（0～1，设置页的百分比），lvl = 层级强度（标签 1，整行 0.75），color = 底色（0 = 默认中浅灰），selected = 再亮一档。
+     * 1.44.10 换了画法（对着 iOS 控制中心那种玻璃，不做折射）。叠法（自下而上）：很淡的底色（几乎透明，后面的画面清楚透出来）→ 竖向高光渐变
+     * → 一圈有厚度的亮边（占高度约 7%，沿斜向渐变：左上最亮、往右下渐暗，右下再回亮一点）→ 亮边里面一道很淡的暗线（让斜面有层次）
+     * → 最外一圈细亮线（同一套渐变）→ 上沿靠左的一条高光（左亮右渐隐）→ 下沿折射回来的亮弧、左上偏青 / 右下偏暖的色散细边。
+     * 这个函数只在缓存没命中时画一次进位图（见 drawGlass），所以可以随便叠，运行时不花钱；画在软件画布上，渐变、裁剪都可以用。
      */
     static void glass(Canvas cv, float l, float t, float r, float b, float f, float lvl, int color, boolean selected) {
-        float h = b - t, rad = h / 2f, k = f * lvl, d = dpf(1f);
+        float w = r - l, h = b - t, rad = h / 2f, k = f * lvl, d = dpf(1f);
         int col = color == 0 ? DEF_COLOR : (color & 0xFFFFFF);
         BX.set(l, t, r, b);
         PT.rewind();
         PT.addRoundRect(BX, rad, rad, Path.Direction.CW);
+        // 主体：很淡的底色
         P.setShader(null);
         P.setStyle(Paint.Style.FILL);
-        P.setColor(argb(col, 0.38f * f)); // 底色：不随层级变淡，层级只管高光
+        P.setColor(argb(col, 0.16f * f));
         cv.drawRoundRect(BX, rad, rad, P);
         if (selected) {
-            P.setColor(argb(0xFFFFFF, 0.20f * k));
+            P.setColor(argb(0xFFFFFF, 0.16f * k));
             cv.drawRoundRect(BX, rad, rad, P);
         }
         // 竖向高光
@@ -370,33 +370,55 @@ final class TabGlass {
         P.setColor(0xFFFFFFFF);
         P.setAlpha(Math.round(255f * Math.min(1f, k)));
         cv.drawRoundRect(BX, rad, rad, P);
-        // 上半部弧形反光：两端各缩进 0.3 倍高，占上半部
-        float gh = h * 0.38f;
-        BX.set(l + h * 0.30f, t + h * 0.08f, r - h * 0.30f, t + h * 0.08f + gh);
-        if (BX.right > BX.left) {
-            MX.setScale(1f, gh);
-            MX.postTranslate(0f, BX.top);
-            GLOSS.setLocalMatrix(MX);
-            P.setShader(GLOSS);
-            P.setColor(0xFFFFFFFF);
-            P.setAlpha(Math.round(255f * Math.min(1f, 0.9f * k)));
-            cv.drawRoundRect(BX, gh / 2f, gh / 2f, P);
-        }
         P.setShader(null);
-        // 边缘光
-        BX.set(l, t, r, b);
-        rim(cv, 1.3f * d, 1.3f * d, argb(0xFFFFFF, 0.80f * k), BX); // 左上亮边
-        rim(cv, 0f, -1.8f * d, argb(0xFFFFFF, 0.38f * k), BX); // 下沿折射回来的亮弧
-        rim(cv, -1.2f * d, 0f, argb(0x000000, 0.22f * f), BX); // 右侧暗边（让玻璃有厚度）
-        rim(cv, d, d, argb(0x80E0FF, 0.35f * k), BX); // 色散：左上偏青
-        rim(cv, -d, -d, argb(0xFFB070, 0.35f * k), BX); // 色散：右下偏暖
-        // 1dp 白色细轮廓（向里画）
-        float sw = Math.max(1f, d);
-        BX.inset(sw / 2f, sw / 2f);
+        // 亮边用的渐变：从靠左的上沿斜着走到下沿（左上最亮，往右下渐暗，最后回到中等亮度）
+        float gx = l + w * 0.15f;
+        LinearGradient rimG = new LinearGradient(gx, t, gx + h * 0.9f, b,
+                new int[]{0xF5FFFFFF, 0x80FFFFFF, 0x26FFFFFF, 0x59FFFFFF}, new float[]{0f, 0.3f, 0.65f, 1f}, Shader.TileMode.CLAMP);
+        // 有厚度的亮边（斜面）
+        float bw = Math.max(2f * d, h * 0.07f);
         P.setStyle(Paint.Style.STROKE);
+        P.setStrokeWidth(bw);
+        P.setShader(rimG);
+        P.setColor(0xFFFFFFFF);
+        P.setAlpha(Math.round(255f * Math.min(1f, 0.55f * k)));
+        BX.set(l + bw / 2f, t + bw / 2f, r - bw / 2f, b - bw / 2f);
+        cv.drawRoundRect(BX, Math.max(0f, rad - bw / 2f), Math.max(0f, rad - bw / 2f), P);
+        // 亮边里面一道很淡的暗线
+        float iw = Math.max(1f, d * 1.2f), off = bw + iw / 2f;
+        if (h > 2f * off) {
+            P.setShader(null);
+            P.setStrokeWidth(iw);
+            P.setColor(argb(0x000000, 0.10f * f));
+            BX.set(l + off, t + off, r - off, b - off);
+            cv.drawRoundRect(BX, Math.max(0f, rad - off), Math.max(0f, rad - off), P);
+        }
+        // 最外一圈细亮线
+        float sw = Math.max(1f, d * 0.9f);
+        P.setShader(rimG);
         P.setStrokeWidth(sw);
-        P.setColor(argb(0xFFFFFF, (selected ? 0.90f : 0.45f) * k));
-        cv.drawRoundRect(BX, rad - sw / 2f, rad - sw / 2f, P);
+        P.setColor(0xFFFFFFFF);
+        P.setAlpha(Math.round(255f * Math.min(1f, (selected ? 1f : 0.8f) * k)));
+        BX.set(l + sw / 2f, t + sw / 2f, r - sw / 2f, b - sw / 2f);
+        cv.drawRoundRect(BX, Math.max(0f, rad - sw / 2f), Math.max(0f, rad - sw / 2f), P);
+        P.setShader(null);
+        P.setStyle(Paint.Style.FILL);
+        // 上沿靠左的一条高光：左亮右渐隐
+        float hx0 = l + h * 0.45f, hx1 = l + Math.min(w * 0.5f, h * 2.6f), hy = t + h * 0.09f, hh = h * 0.2f;
+        if (hx1 - hx0 > h * 0.3f) {
+            LinearGradient hg = new LinearGradient(hx0, 0f, hx1, 0f, new int[]{0xCCFFFFFF, 0x00FFFFFF}, null, Shader.TileMode.CLAMP);
+            P.setShader(hg);
+            P.setColor(0xFFFFFFFF);
+            P.setAlpha(Math.round(255f * Math.min(1f, 0.85f * k)));
+            BX.set(hx0, hy, hx1, hy + hh);
+            cv.drawRoundRect(BX, hh / 2f, hh / 2f, P);
+            P.setShader(null);
+        }
+        // 下沿折射回来的亮弧、色散（月牙：把形状错开再抠掉）
+        BX.set(l, t, r, b);
+        rim(cv, 0f, -1.8f * d, argb(0xFFFFFF, 0.30f * k), BX);
+        rim(cv, d, d, argb(0x80E0FF, 0.22f * k), BX); // 左上偏青
+        rim(cv, -d, -d, argb(0xFFB070, 0.22f * k), BX); // 右下偏暖
         P.setStyle(Paint.Style.FILL);
     }
 

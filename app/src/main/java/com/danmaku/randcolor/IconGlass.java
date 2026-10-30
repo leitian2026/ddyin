@@ -46,7 +46,10 @@ final class IconGlass {
             "com.ss.android.ugc.aweme.feed.widget.right.FeedShareImageView"};
     /** 收藏控件 174×174，图标只占中间一块（比另外三个的 103×103 大 1.7 倍），底板按 103/174 缩小，四个底板一样大。 */
     private static final int COLLECT = 2;
-    private static final float COLLECT_RATIO = 103f / 174f;
+    private static final float COLLECT_RATIO = 0.9f; // 1.45.1：星星几乎占满 174 的控件，原来的 0.59 被星星盖住
+    private static final int SHARE = 3;
+    /** 点赞 / 评论 / 收藏的图标是白色的，底板偏白会糊在一起，这三个用偏深的玻璃底色；分享（效果好的）保持白色。 */
+    private static final int DARK = 0x39425A;
     private static final int MAX_VIEWS = 24;
     private static final int ATTACH_TAG = 0x7e0b0c0c, LAYER_TAG = 0x7e0b0c0d;
 
@@ -142,7 +145,10 @@ final class IconGlass {
         DanmakuConfig c = DanmakuHook.cfg;
         Drawable bg = v.getBackground();
         if (c.iconPlate && c.iconBg > 0) {
-            if (bg == null) v.setBackground(new Plate(v.getClass().getName().equals(CLS[COLLECT]) ? COLLECT_RATIO : 1f));
+            if (bg == null) {
+                String n = v.getClass().getName();
+                v.setBackground(new Plate(n.equals(CLS[COLLECT]) ? COLLECT_RATIO : 1f, n.equals(CLS[SHARE]) ? 0 : DARK));
+            }
         } else if (bg instanceof Plate) {
             v.setBackground(null);
         }
@@ -181,9 +187,11 @@ final class IconGlass {
     /** 底板：控件范围内居中的一块圆形玻璃（直径 = 控件短边 × ratio），玻璃本身是缓存的硬件位图。 */
     private static final class Plate extends TabGlass.Glass {
         private final float ratio;
+        private final int color;
 
-        Plate(float ratio) {
+        Plate(float ratio, int color) {
             this.ratio = ratio;
+            this.color = color;
         }
 
         @Override
@@ -193,10 +201,10 @@ final class IconGlass {
                 int pct = Math.min(100, c.iconBg);
                 if (!c.iconPlate || pct <= 0) return;
                 Rect bd = getBounds();
-                float r = Math.min(bd.width(), bd.height()) * ratio / 2f;
+                float r = Math.min(bd.width(), bd.height()) * ratio * Math.max(20, Math.min(100, c.iconSize)) / 200f;
                 if (r < 1f) return;
                 float cx = bd.exactCenterX(), cy = bd.exactCenterY();
-                TabGlass.drawGlass(cv, cx - r, cy - r, cx + r, cy + r, pct / 100f, 1f, 0, false, false);
+                TabGlass.drawGlass(cv, cx - r, cy - r, cx + r, cy + r, pct / 100f, 1f, color, false, false);
             } catch (Throwable ignored) {
             }
         }

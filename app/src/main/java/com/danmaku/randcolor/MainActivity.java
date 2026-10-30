@@ -77,7 +77,7 @@ public class MainActivity extends Activity {
     private PctField tabRowF, tabItemF, tabShF;
     private ColorField tabRowColorF, tabItemColorF, tabTextColorF, tabTextSelColorF;
     private CheckBox cbTabCenter, cbBotGlass, cbTabGlass, cbIconPlate, cbIconFill;
-    private PctField iconBgF;
+    private PctField iconBgF, iconSizeF;
     private HalfDpField tabShRF, tabShDyF, tabGapF, tabRowPadXF, tabRowPadYF;
     private PctField tabItemHF;
     private HalfDpField tabSpreadF;
@@ -412,6 +412,7 @@ public class MainActivity extends Activity {
         place(sTabGlass);
 
         iconBgF = new PctField(35);
+        iconSizeF = new PctField(100);
         Section sIcon = new Section("右侧按钮液态玻璃", false, null, () -> (cbIconPlate != null && cbIconPlate.isChecked() ? "底板 " + (iconBgF.v == 0 ? "关" : iconBgF.v + "%") : "无底板") + " · " + (cbIconFill != null && cbIconFill.isChecked() ? "图标加玻璃" : "图标不变"));
         cbIconPlate = new CheckBox(this);
         cbIconPlate.setText("每个图标后面垫一块圆形玻璃");
@@ -421,6 +422,9 @@ public class MainActivity extends Activity {
         sIcon.body.addView(cbIconPlate);
         sIcon.body.addView(note("作用在右侧那一列：点赞、评论、收藏、分享。画法和顶部标签的玻璃一样（偏白的薄雾 + 柔和内发光 + 亮线），缓存成硬件位图，运行时只是一次绘制。头像不动。第一次打开这个设置要回到抖音前台一次才生效。"));
         sIcon.body.addView(settingRow("底板 不透明度", iconBgF.build()));
+        sIcon.body.addView(rowLine());
+        sIcon.body.addView(settingRow("底板 大小（占图标框，最大 100%）", iconSizeF.build()));
+        sIcon.body.addView(note("底板画在图标框里面，不能比框大；图标几乎占满框时（点赞、评论），调小底板会让图标外圈露出来。点赞 / 评论 / 收藏的底板用偏深的底色，让白色图标衬出来，分享保持白色。"));
         sIcon.body.addView(rowLine());
         cbIconFill = new CheckBox(this);
         cbIconFill.setText("图标本身加玻璃的明暗");
@@ -937,6 +941,7 @@ public class MainActivity extends Activity {
         cbIconPlate.setChecked(c.iconPlate);
         cbIconFill.setChecked(c.iconFill);
         iconBgF.set(c.iconBg);
+        iconSizeF.set(c.iconSize);
         cbTabGlass.setChecked(c.tabGlass);
         tabTextColorF.set(c.tabTextColor);
         tabTextSelColorF.set(c.tabTextSelColor);
@@ -1011,6 +1016,7 @@ public class MainActivity extends Activity {
         c.iconPlate = cbIconPlate.isChecked();
         c.iconFill = cbIconFill.isChecked();
         c.iconBg = iconBgF.v;
+        c.iconSize = Math.max(20, iconSizeF.v);
         c.tabGlass = cbTabGlass.isChecked();
         c.tabTextColor = tabTextColorF.color;
         c.tabTextSelColor = tabTextSelColorF.color;

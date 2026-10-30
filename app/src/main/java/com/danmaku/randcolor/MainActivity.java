@@ -435,7 +435,12 @@ public class MainActivity extends Activity {
         cbIconFill.setTextColor(cText);
         cbIconFill.setOnCheckedChangeListener((b, on) -> refreshSummaries());
         sIcon.body.addView(cbIconFill);
-        sIcon.body.addView(note("原来的图标藏起来（不画），在上面自己画一个玻璃图标：半透明、上亮下透、柔和内发光、亮边、柔影。点赞后变红、收藏后变黄（状态从外层按钮的无障碍描述「已点赞 / 已选中」读，读不到就按未选中画）。玻璃只画一次缓存成硬件位图。抖音自己的点赞爆发动画如果画在这个控件里，会一起被藏掉，发现不对就关掉这一项。");
+        sIcon.body.addView(note("原来的图标藏起来（不画），在上面自己画一个玻璃图标：半透明、上亮下透、柔和内发光、亮边、柔影。点赞后变红、收藏后变黄（状态从外层按钮的无障碍描述「已点赞 / 已选中」读，读不到就按未选中画）。玻璃只画一次缓存成硬件位图。抖音自己的点赞爆发动画如果画在这个控件里，会一起被藏掉，发现不对就关掉这一项。"));
+        place(sIcon);
+
+        etIdle = field();
+        etIdle.setInputType(InputType.TYPE_CLASS_NUMBER);
+        etIdle.setHint("分钟，0 = 关闭");
         watch(etIdle);
         Section sIdle = new Section("无操作自动退出", false, null, () -> {
             String t = etIdle.getText().toString().trim();

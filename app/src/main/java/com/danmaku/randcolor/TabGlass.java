@@ -1,6 +1,7 @@
 package com.danmaku.randcolor;
 
 import android.graphics.Bitmap;
+import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
 import android.graphics.LinearGradient;
@@ -341,25 +342,26 @@ final class TabGlass {
     }
 
     /**
-     * 一块液态玻璃（l,t,r,b = 玻璃本身的框；两端半圆）。f = 不透明度（0～1，设置页的百分比），lvl = 层级强度（标签 1，整行 0.75），color = 底色（0 = 默认中浅灰），selected = 再亮一档。
-     * 1.44.10 换了画法（对着 iOS 控制中心那种玻璃，不做折射）。叠法（自下而上）：很淡的底色（几乎透明，后面的画面清楚透出来）→ 竖向高光渐变
-     * → 一圈有厚度的亮边（占高度约 7%，沿斜向渐变：左上最亮、往右下渐暗，右下再回亮一点）→ 亮边里面一道很淡的暗线（让斜面有层次）
-     * → 最外一圈细亮线（同一套渐变）→ 上沿靠左的一条高光（左亮右渐隐）→ 下沿折射回来的亮弧、左上偏青 / 右下偏暖的色散细边。
-     * 这个函数只在缓存没命中时画一次进位图（见 drawGlass），所以可以随便叠，运行时不花钱；画在软件画布上，渐变、裁剪都可以用。
+     * 一块液态玻璃（l,t,r,b = 玻璃本身的框；两端半圆）。f = 不透明度（0～1，设置页的百分比），lvl = 层级强度（标签 1，整行 0.75），color = 底色（0 = 默认，偏白的薄雾），selected = 再亮一档。
+     * 1.44.11 重画（对着 iOS 控制中心那种玻璃，不做折射）。叠法（自下而上）：偏白的薄雾本体（比后面的画面略亮）→ 竖向高光
+     * → 沿边缘往里的柔和内发光（虚化的亮带，左上宽而亮、右下窄一些，不是一条硬线）→ 最外一圈细而清晰的亮线（左上最亮，右下再回亮）
+     * → 上沿靠左的一条高光（左亮右渐隐）→ 下沿折射回来的亮弧、左上偏青 / 右下偏暖的色散细边。
+     * 这个函数只在缓存没命中时画一次进位图（见 drawGlass），画在软件画布上，所以虚化（BlurMaskFilter）、渐变、裁剪都能用，运行时不花钱。
      */
     static void glass(Canvas cv, float l, float t, float r, float b, float f, float lvl, int color, boolean selected) {
         float w = r - l, h = b - t, rad = h / 2f, k = f * lvl, d = dpf(1f);
-        int col = color == 0 ? DEF_COLOR : (color & 0xFFFFFF);
+        // 本体颜色：默认纯白的薄雾；用户选了底色就保留 60%，只掺 40% 的白，不然选的颜色看不出来
+        int col = color == 0 ? 0xFFFFFF : mixWhite(color & 0xFFFFFF, 0.4f);
         BX.set(l, t, r, b);
         PT.rewind();
         PT.addRoundRect(BX, rad, rad, Path.Direction.CW);
-        // 主体：很淡的底色
+        // 本体：偏白的薄雾
         P.setShader(null);
         P.setStyle(Paint.Style.FILL);
-        P.setColor(argb(col, 0.16f * f));
+        P.setColor(argb(col, 0.18f * f));
         cv.drawRoundRect(BX, rad, rad, P);
         if (selected) {
-            P.setColor(argb(0xFFFFFF, 0.16f * k));
+            P.setColor(argb(0xFFFFFF, 0.14f * k));
             cv.drawRoundRect(BX, rad, rad, P);
         }
         // 竖向高光
@@ -371,34 +373,32 @@ final class TabGlass {
         P.setAlpha(Math.round(255f * Math.min(1f, k)));
         cv.drawRoundRect(BX, rad, rad, P);
         P.setShader(null);
-        // 亮边用的渐变：从靠左的上沿斜着走到下沿（左上最亮，往右下渐暗，最后回到中等亮度）
+        // 亮度沿边缘的变化：从靠左的上沿斜着走到下沿（左上最亮，往右下渐暗，最后又回亮）
         float gx = l + w * 0.15f;
-        LinearGradient rimG = new LinearGradient(gx, t, gx + h * 0.9f, b,
-                new int[]{0xF5FFFFFF, 0x80FFFFFF, 0x26FFFFFF, 0x59FFFFFF}, new float[]{0f, 0.3f, 0.65f, 1f}, Shader.TileMode.CLAMP);
-        // 有厚度的亮边（斜面）
-        float bw = Math.max(2f * d, h * 0.07f);
+        LinearGradient glowG = new LinearGradient(gx, t, gx + h * 0.9f, b,
+                new int[]{0xFFFFFFFF, 0x80FFFFFF, 0x1AFFFFFF, 0x66FFFFFF}, new float[]{0f, 0.32f, 0.66f, 1f}, Shader.TileMode.CLAMP);
+        // 沿边缘往里的柔和内发光：在形状里面画一条虚化的描边（描边中心线压在边上，外半截被裁掉，只留里面的）
+        float gw = Math.max(3f * d, h * 0.30f);
+        Paint gp = new Paint(Paint.ANTI_ALIAS_FLAG);
+        gp.setStyle(Paint.Style.STROKE);
+        gp.setStrokeWidth(gw);
+        gp.setShader(glowG);
+        gp.setColor(0xFFFFFFFF);
+        gp.setAlpha(Math.round(255f * Math.min(1f, 0.62f * k)));
+        gp.setMaskFilter(new BlurMaskFilter(Math.max(1f, gw * 0.5f), BlurMaskFilter.Blur.NORMAL));
+        cv.save();
+        cv.clipPath(PT);
+        cv.drawRoundRect(BX, rad, rad, gp);
+        cv.restore();
+        // 最外一圈细而清晰的亮线（对比比内发光强：左上最亮，右下有一段反光）
+        LinearGradient lineG = new LinearGradient(gx, t, gx + h * 0.9f, b,
+                new int[]{0xFFFFFFFF, 0x99FFFFFF, 0x33FFFFFF, 0xB3FFFFFF}, new float[]{0f, 0.3f, 0.62f, 1f}, Shader.TileMode.CLAMP);
+        float sw = Math.max(1f, d * 1.1f);
         P.setStyle(Paint.Style.STROKE);
-        P.setStrokeWidth(bw);
-        P.setShader(rimG);
-        P.setColor(0xFFFFFFFF);
-        P.setAlpha(Math.round(255f * Math.min(1f, 0.55f * k)));
-        BX.set(l + bw / 2f, t + bw / 2f, r - bw / 2f, b - bw / 2f);
-        cv.drawRoundRect(BX, Math.max(0f, rad - bw / 2f), Math.max(0f, rad - bw / 2f), P);
-        // 亮边里面一道很淡的暗线
-        float iw = Math.max(1f, d * 1.2f), off = bw + iw / 2f;
-        if (h > 2f * off) {
-            P.setShader(null);
-            P.setStrokeWidth(iw);
-            P.setColor(argb(0x000000, 0.10f * f));
-            BX.set(l + off, t + off, r - off, b - off);
-            cv.drawRoundRect(BX, Math.max(0f, rad - off), Math.max(0f, rad - off), P);
-        }
-        // 最外一圈细亮线
-        float sw = Math.max(1f, d * 0.9f);
-        P.setShader(rimG);
         P.setStrokeWidth(sw);
+        P.setShader(lineG);
         P.setColor(0xFFFFFFFF);
-        P.setAlpha(Math.round(255f * Math.min(1f, (selected ? 1f : 0.8f) * k)));
+        P.setAlpha(Math.round(255f * Math.min(1f, (selected ? 1f : 0.9f) * k)));
         BX.set(l + sw / 2f, t + sw / 2f, r - sw / 2f, b - sw / 2f);
         cv.drawRoundRect(BX, Math.max(0f, rad - sw / 2f), Math.max(0f, rad - sw / 2f), P);
         P.setShader(null);
@@ -420,6 +420,15 @@ final class TabGlass {
         rim(cv, d, d, argb(0x80E0FF, 0.22f * k), BX); // 左上偏青
         rim(cv, -d, -d, argb(0xFFB070, 0.22f * k), BX); // 右下偏暖
         P.setStyle(Paint.Style.FILL);
+    }
+
+    /** rgb 往白色掺 amount（0～1）。 */
+    private static int mixWhite(int rgb, float amount) {
+        int rr = (rgb >> 16) & 255, gg = (rgb >> 8) & 255, bb = rgb & 255;
+        rr += Math.round((255 - rr) * amount);
+        gg += Math.round((255 - gg) * amount);
+        bb += Math.round((255 - bb) * amount);
+        return (rr << 16) | (gg << 8) | bb;
     }
 
     // ---- 1.44.9：玻璃缓存成硬件位图。glass() 一块要 5 道边缘光 × 2 次路径裁剪 + 十来个绘制操作，12 块（顶部 5 + 整行、底部 5 + 整行）每次重绘都现画，

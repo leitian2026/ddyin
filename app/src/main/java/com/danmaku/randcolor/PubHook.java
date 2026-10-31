@@ -88,7 +88,6 @@ final class PubHook {
     private static final String AWEME = "com.ss.android.ugc.aweme.feed.model.Aweme";
 
     /** 应用自己的 tag key（高字节不小于 2），互不相同。 */
-    private static final int WARN_TAG = 0x7e0b0c0f;   // 作者声明那一行被我们往下挪过
     private static final int CAP_TAG = 0x7e0b0c01;    // 认出是视频文案（cap.draw 只改打过 tag 的）
     private static final int ROOT_TAG = 0x7e0b0c04;   // VideoViewHolderRootView 上挂这一页的 Rows
     private static final int CAPW_TAG = 0x7e0b0c07;   // 文案控件上挂了布局监听
@@ -155,7 +154,6 @@ final class PubHook {
     private static final class Rows {
         View root;
         ViewGroup intro;     // 这一页的 AwemeIntroInfoLayout；bind 时还没找到就是 null
-        View warn;           // 容器里的作者声明那一行（容器最后一个子控件，里面有 FeedWarnForceCenterTextView）；没有声明就是 null
         TextView cap;        // 容器里的文案控件
         TextView pub, time;  // 盖在页面根上的两个文字浮层（要显示时才建）
         float slotX, slotY;  // 文案下方固定位置（页面根坐标，像素）
@@ -790,11 +788,9 @@ final class PubHook {
         int px = pub ? c.pubX : c.timeX, py = pub ? c.pubY : c.timeY;
         float x = px >= 0 ? px * d : 12f * d;
         float y = py >= 0 ? py * d : rh * (pub ? 0.60f : 0.65f);
-        if (r.slotOk && anchored(c, pub)) { // 放在文案下方：发布地在上，时长接在它下面（两个都选时叠着放）；作者声明排在它们下面（见 moveWarn）
+        if (r.slotOk && anchored(c, pub)) { // 放在文案下方：发布地在上，时长接在它下面（两个都选时叠着放）
             x = r.slotX;
             y = r.slotY;
-            View wr = warnOf(r);
-            if (wr != null && wr.getTag(WARN_TAG) != null) y -= wr.getHeight(); // 声明已经被挪回原位：它上面这一段空白才是发布地 / 时长的位置
             if (!pub && anchored(c, true) && r.pub != null && r.pub.getVisibility() == View.VISIBLE) y += r.pub.getHeight();
         }
         x = Math.max(0f, Math.min(x, rw - w));
@@ -804,52 +800,8 @@ final class PubHook {
     }
 
     private static void placeAll(Rows r) {
-        moveWarn(r);
         if (r.pub != null) place(r, r.pub, true);
         if (r.time != null) place(r, r.time, false);
-    }
-
-    private static boolean hasWarn(View v, int depth) {
-        if (v.getClass().getName().endsWith(".FeedWarnForceCenterTextView")) return true;
-        if (depth > 0 && v instanceof ViewGroup) {
-            ViewGroup g = (ViewGroup) v;
-            for (int i = 0; i < g.getChildCount(); i++) if (hasWarn(g.getChildAt(i), depth - 1)) return true;
-        }
-        return false;
-    }
-
-    /** 这一页的作者声明那一行：容器最后一个子控件、里面（3 层内）有 FeedWarnForceCenterTextView（类名没混淆）；没有声明（视频没有）就是 null。找到的缓存在 Rows 里。 */
-    private static View warnOf(Rows r) {
-        ViewGroup g = r.intro;
-        if (g == null || g.getChildCount() == 0) return null;
-        View w = r.warn;
-        if (w != null && w.getParent() == g) return w;
-        View last = g.getChildAt(g.getChildCount() - 1);
-        r.warn = hasWarn(last, 3) ? last : null;
-        return r.warn;
-    }
-
-    /**
-     * 作者声明排在发布地 / 时长下面：整个容器被「文案下方空白行」（blankH）往上顶了一段（intro.translationY < 0），
-     * 声明那一行反向往下挪同样一段（translationY 不触发重新布局），回到原来的位置；顶出来的空白留在文案和声明之间，发布地 / 时长放在这段空白里（place 里减去声明高度）。
-     * 容器没被我们顶（blankH = 0）时不动。只动自己动过的：WARN_TAG 记着我们设过，不再需要时还原。
-     */
-    private static void moveWarn(Rows r) {
-        try {
-            View w = warnOf(r);
-            if (w == null) return;
-            ViewGroup g = r.intro;
-            float sh = g != null && g.getTag(BLANK_TAG) != null ? -g.getTranslationY() : 0f;
-            boolean ours = w.getTag(WARN_TAG) != null;
-            if (sh > 0f) {
-                if (w.getTranslationY() != sh) w.setTranslationY(sh);
-                if (!ours) w.setTag(WARN_TAG, Boolean.TRUE);
-            } else if (ours) {
-                w.setTranslationY(0f);
-                w.setTag(WARN_TAG, null);
-            }
-        } catch (Throwable ignored) {
-        }
     }
 
     /** 位置浮窗里位置变了：所有见过的页面的两个浮层都重新放一次（邻近页的也一起，划过去就在对的位置）。 */

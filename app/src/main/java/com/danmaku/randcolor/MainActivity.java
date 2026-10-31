@@ -1320,7 +1320,6 @@ public class MainActivity extends Activity {
             {"tab.bottom", "首页底部导航液态玻璃：认「首页 / 朋友 / 消息 / 我」的选中状态（DuxTextView#setAlpha）"},
             {"live.card", "音量条：推荐流里的直播预览卡（LivePreviewFrameLayout 构造）"},
             {"icon.glass", "右侧按钮液态玻璃：点赞 / 评论 / 收藏 / 分享图标的类（构造）"},
-            {"icon.lottie", "右侧按钮液态玻璃：收藏图标的绘制（LottieDrawable.draw）"},
             {"pub.bind", "发布日期地点 / 视频时长：翻页绑定（视频数据 + 页面容器）"},
             {"pub.text", "视频文案：改色 / 底条 / 接手容器（上顶、文案下方位置）（设置文字时）"},
             {"pub.anchor", "视频文案：认文案控件 / 容器 / 页面根的类（上顶、改色、底条都要）"},

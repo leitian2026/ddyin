@@ -365,7 +365,7 @@ public class MainActivity extends Activity {
         tabItemHF = new PctField(60);
         tabSpreadF = new HalfDpField(0, 60, 0);
         tabGapF = new HalfDpField(0, 32, 12);
-        tabRowPadXF = new HalfDpField(0, 40, 14);
+        tabRowPadXF = new HalfDpField(0, 80, 14);
         tabRowPadYF = new HalfDpField(0, 40, 12);
         Section sTabGlass = new Section("首页顶部标签液态玻璃", false, null, () -> (cbTabGlass != null && !cbTabGlass.isChecked() ? "顶部关 · " : "") + "整行 " + (tabRowF.v == 0 ? "关" : tabRowF.v + "%") + " · 每个标签 " + (tabItemF.v == 0 ? "关" : tabItemF.v + "%"));
         cbTabGlass = new CheckBox(this);

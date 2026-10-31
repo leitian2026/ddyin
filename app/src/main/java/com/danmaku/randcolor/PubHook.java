@@ -794,7 +794,7 @@ final class PubHook {
             x = r.slotX;
             y = r.slotY;
             View w = warnOf(r);
-            if (w != null) y -= w.getHeight(); // 声明那一行原来的位置让给发布地 / 时长，声明往下挪
+            if (w != null && w.getTag(WARN_TAG) != null) y -= w.getHeight(); // 声明已经被挪回原位：它上面这一段空白才是发布地 / 时长的位置
             if (!pub && anchored(c, true) && r.pub != null && r.pub.getVisibility() == View.VISIBLE) y += r.pub.getHeight();
         }
         x = Math.max(0f, Math.min(x, rw - w));
@@ -804,9 +804,9 @@ final class PubHook {
     }
 
     private static void placeAll(Rows r) {
+        moveWarn(r);
         if (r.pub != null) place(r, r.pub, true);
         if (r.time != null) place(r, r.time, false);
-        moveWarn(r);
     }
 
     private static boolean hasWarn(View v, int depth) {
@@ -830,19 +830,16 @@ final class PubHook {
     }
 
     /**
-     * 作者声明排在发布地 / 时长下面：发布地、时长放在声明原来的位置（place 里减去声明的高度），声明那一行用 translationY 往下挪
-     * 「放在文案下方」的那几个浮层的高度之和（translationY 不触发重新布局）。只动自己动过的：WARN_TAG 记着我们设过，不再需要时还原。
+     * 作者声明排在发布地 / 时长下面：整个容器被「文案下方空白行」（blankH）往上顶了一段（intro.translationY < 0），
+     * 声明那一行反向往下挪同样一段（translationY 不触发重新布局），回到原来的位置；顶出来的空白留在文案和声明之间，发布地 / 时长放在这段空白里（place 里减去声明高度）。
+     * 容器没被我们顶（blankH = 0）时不动。只动自己动过的：WARN_TAG 记着我们设过，不再需要时还原。
      */
     private static void moveWarn(Rows r) {
         try {
             View w = warnOf(r);
             if (w == null) return;
-            DanmakuConfig c = DanmakuHook.cfg;
-            float sh = 0f;
-            if (r.slotOk) {
-                if (r.pub != null && anchored(c, true) && r.pub.getVisibility() == View.VISIBLE) sh += r.pub.getHeight();
-                if (r.time != null && anchored(c, false) && r.time.getVisibility() == View.VISIBLE) sh += r.time.getHeight();
-            }
+            ViewGroup g = r.intro;
+            float sh = g != null && g.getTag(BLANK_TAG) != null ? -g.getTranslationY() : 0f;
             boolean ours = w.getTag(WARN_TAG) != null;
             if (sh > 0f) {
                 if (w.getTranslationY() != sh) w.setTranslationY(sh);

@@ -66,7 +66,6 @@ final class IconGlass {
         DanmakuConfig cf = DanmakuHook.cfg;
         if (!cf.iconPlate && !cf.iconFill) return; // 都没开：不挂（没有结论，打开后回到前台再挂）
         hookViews(cl);
-        if (collectCls != null) hookLottie(cl);
     }
 
     private static void hookViews(ClassLoader cl) {
@@ -101,16 +100,6 @@ final class IconGlass {
         else HookGuard.miss(HookGuard.ICON_GLASS, "右侧图标的类里没有构造方法可挂（点赞 / 评论 / 收藏 / 分享图标的类变了，需要重新用 TextRec 导出右侧按钮列的视图树）");
     }
 
-    /**
-     * 收藏控件是 LottieAnimationView（TextRec 导出里是 LottieDrawable），它的背景 / 前景没有被画出来（父级链里有抖音自己的 HPFrameLayout，是否它不走系统的 draw 没验证），
-     * 所以收藏的底板和玻璃图标改成画在 LottieDrawable.draw 之后（经过 ImageView.onDraw，一定会走）。只对「回调是收藏控件」的那一个 drawable 处理，其余 Lottie 一次类比较就放行。
-     */
-    private static void hookLottie(ClassLoader cl) {
-        HookGuard.hook(HookGuard.ICON_LOTTIE, "com.airbnb.lottie.LottieDrawable",
-                m -> m.getName().equals("draw") && m.getParameterTypes().length == 1 && m.getParameterTypes()[0] == Canvas.class,
-                LOTTIE, "收藏图标的 LottieDrawable.draw(Canvas) 没找到（Lottie 版本变了），收藏图标没有玻璃", cl);
-    }
-
     private static final XC_MethodHook ALPHA = new XC_MethodHook() {
         @Override
         protected void beforeHookedMethod(MethodHookParam p) {
@@ -119,21 +108,12 @@ final class IconGlass {
             } catch (Throwable ignored) {
             }
         }
-    };
 
-    private static final XC_MethodHook LOTTIE = new XC_MethodHook() {
+        // 抖音点赞动画收尾时的 setImageAlpha 就是「爆发动画结束」的信号：此时让这个控件重画一次，把玻璃图标补出来（不用定时器）
         @Override
         protected void afterHookedMethod(MethodHookParam p) {
             try {
-                Drawable d = (Drawable) p.thisObject;
-                Drawable.Callback cb = d.getCallback();
-                Class<?> k = collectCls;
-                if (cb == null || cb.getClass() != k) return;
-                Canvas cv = (Canvas) p.args[0];
-                DanmakuConfig c = DanmakuHook.cfg;
-                Rect bd = d.getBounds();
-                if (c.iconPlate) drawPlate(cv, bd, COLLECT_RATIO, 0);
-                if (c.iconFill) Glyph.paint(cv, bd, K_COLLECT, (View) cb);
+                if (p.thisObject instanceof View && ((View) p.thisObject).getTag(HID_TAG) != null) ((View) p.thisObject).invalidate();
             } catch (Throwable ignored) {
             }
         }
@@ -193,13 +173,7 @@ final class IconGlass {
     /** 按当前配置套上 / 撤掉底板和图标玻璃（只动我们自己加的；控件原来就有背景 / 前景时不覆盖）。主线程。 */
     private static void apply(View v) {
         DanmakuConfig c = DanmakuHook.cfg;
-        if (v.getClass() == collectCls) { // 收藏：画在 LottieDrawable.draw 里，不用背景 / 前景
-            if (!c.iconFill && v.getTag(HID_TAG) != null) {
-                v.setTag(HID_TAG, null);
-                if (v instanceof ImageView) ((ImageView) v).setImageAlpha(255);
-            }
-            return;
-        }
+        if (v.getClass() == collectCls) return; // 收藏图标（Lottie）这一版不处理，下一版再做
         Drawable bg = v.getBackground();
         if (c.iconPlate && c.iconBg > 0) {
             if (bg == null) {

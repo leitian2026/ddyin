@@ -186,7 +186,7 @@ final class TabGlass {
         }
         Class<?> k = TabHook.itemClass();
         if (k == null) return;
-        int sl = scroll.getLeft(), sr = scroll.getRight(), sx = scroll.getScrollX();
+        int sl = scroll.getLeft(), sr = scroll.getRight(), sx = 0; // 1.45.11：不用 scrollX（它在布局之外变，没有事件通知，会把过期的值固化下来）
         int ox = row.getLeft() - sx + sl; // 标签在 strip 坐标里的横向偏移（同 RowGlass）
         float L = Float.MAX_VALUE, R = -Float.MAX_VALUE;
         for (int i = 0, n = row.getChildCount(); i < n; i++) {
@@ -212,7 +212,6 @@ final class TabGlass {
             ViewParent vp = v.getParent();
             if (!(vp instanceof View)) break; // 到根了（DecorView 的父级是 ViewRootImpl）
             View pv = (View) vp;
-            base -= pv.getScrollX();
             v = pv;
         }
         float nt = w / 2f - (base + (L + R) / 2f);
@@ -544,7 +543,7 @@ final class TabGlass {
                 if (c.tabRowBg <= 0 || !c.tabGlass) return;
                 Class<?> k = TabHook.itemClass();
                 if (k == null) return;
-                int sl = scroll.getLeft(), sr = scroll.getRight(), sx = scroll.getScrollX();
+                int sl = scroll.getLeft(), sr = scroll.getRight(), sx = 0; // 1.45.11：不用 scrollX（它在布局之外变，没有事件通知，会把过期的值固化下来）
                 int ox = row.getLeft() - sx + sl, oy = row.getTop() + scroll.getTop();
                 float L = Float.MAX_VALUE, T = Float.MAX_VALUE, R = -Float.MAX_VALUE, B = -Float.MAX_VALUE;
                 for (int i = 0, n = row.getChildCount(); i < n; i++) {

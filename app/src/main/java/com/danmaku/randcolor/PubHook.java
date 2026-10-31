@@ -793,8 +793,8 @@ final class PubHook {
         if (r.slotOk && anchored(c, pub)) { // 放在文案下方：发布地在上，时长接在它下面（两个都选时叠着放）；作者声明排在它们下面（见 moveWarn）
             x = r.slotX;
             y = r.slotY;
-            View w = warnOf(r);
-            if (w != null && w.getTag(WARN_TAG) != null) y -= w.getHeight(); // 声明已经被挪回原位：它上面这一段空白才是发布地 / 时长的位置
+            View wr = warnOf(r);
+            if (wr != null && wr.getTag(WARN_TAG) != null) y -= wr.getHeight(); // 声明已经被挪回原位：它上面这一段空白才是发布地 / 时长的位置
             if (!pub && anchored(c, true) && r.pub != null && r.pub.getVisibility() == View.VISIBLE) y += r.pub.getHeight();
         }
         x = Math.max(0f, Math.min(x, rw - w));

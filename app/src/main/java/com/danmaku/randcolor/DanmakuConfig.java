@@ -56,7 +56,7 @@ public final class DanmakuConfig {
     public int tabShadow = 65, tabShadowR = 4, tabShadowDy = 2;
     /** 标签玻璃的大小：高 = 标签框高的百分比（20～100）；相邻两个标签玻璃之间的缝（0.5dp 一档，0～16dp，宽 = 标签框宽 − 缝）。 */
     public int tabItemH = 60, tabGap = 12;
-    /** 整行玻璃比标签玻璃多出的：左右 / 上下（0.5dp 一档，0～20dp）。 */
+    /** 整行玻璃比标签玻璃多出的：左右 0～40dp / 上下 0～20dp（0.5dp 一档）。 */
     public int tabRowPadX = 14, tabRowPadY = 12;
     /** 标签文字之间额外撑开的距离（0.5dp 一档，0～30dp，0 = 不改抖音原来的）：每个标签的文字左右外边距各加一半、标签框宽度加整个值。见 TabGlass.applySpread。 */
     public int tabSpread = 0;
@@ -316,7 +316,7 @@ public final class DanmakuConfig {
         c.tabShadowDy = Math.max(0, Math.min(10, parseIntOr(p.getProperty("tabShadowDy", "2"), 2)));
         c.tabItemH = Math.max(20, Math.min(100, parseIntOr(p.getProperty("tabItemH", "60"), 60)));
         c.tabGap = Math.max(0, Math.min(32, parseIntOr(p.getProperty("tabGap", "12"), 12)));
-        c.tabRowPadX = Math.max(0, Math.min(40, parseIntOr(p.getProperty("tabRowPadX", "14"), 14)));
+        c.tabRowPadX = Math.max(0, Math.min(80, parseIntOr(p.getProperty("tabRowPadX", "14"), 14)));
         c.tabRowPadY = Math.max(0, Math.min(40, parseIntOr(p.getProperty("tabRowPadY", "12"), 12)));
         c.tabSpread = Math.max(0, Math.min(60, parseIntOr(p.getProperty("tabSpread", "0"), 0)));
         c.tabCenter = Boolean.parseBoolean(p.getProperty("tabCenter", "true").trim());

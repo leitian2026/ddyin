@@ -360,10 +360,12 @@ final class TabGlass {
         P.setShader(null);
         P.setStyle(Paint.Style.FILL);
         // thick（1.45.12，只给顶部标签）：本体更透，只靠边和高光撑形状；选中的标签换成接近白底的一块（对比拉开）
-        P.setColor(argb(col, (thick ? 0.07f : 0.18f) * f));
+        // 1.45.13：不透明度 100% = 完全不透明。本体白雾 = 7% + 93% × 不透明度²（30% 时和原来的 18% 差不多，往上越来越实，100% 实心）；选中再叠一层白
+        float body = thick ? 0.07f + 0.93f * f * f : 0.18f * f;
+        P.setColor(argb(col, body));
         cv.drawRoundRect(BX, rad, rad, P);
         if (selected) {
-            P.setColor(argb(0xFFFFFF, (thick ? 0.55f * f : 0.14f * k)));
+            P.setColor(argb(0xFFFFFF, thick ? 0.40f * f : 0.14f * k));
             cv.drawRoundRect(BX, rad, rad, P);
         }
         // 竖向高光
@@ -480,7 +482,7 @@ final class TabGlass {
 
     /** 画一块玻璃（可带投影）到 cv 上，框是 (l, t, r, b)。从缓存取位图一次绘制；没有就画一张存起来。位置取整到像素。 */
     static void drawGlass(Canvas cv, float l, float t, float r, float b, float f, float lvl, int color, boolean selected, boolean withShadow) {
-        drawGlass(cv, l, t, r, b, f, lvl, color, selected, withShadow, false);
+        drawGlass(cv, l, t, r, b, f, lvl, color, selected, withShadow, true); // 1.45.13：所有玻璃都用加厚的画法
     }
 
     static void drawGlass(Canvas cv, float l, float t, float r, float b, float f, float lvl, int color, boolean selected, boolean withShadow, boolean thick) {
@@ -540,7 +542,7 @@ final class TabGlass {
                 float l = bd.left + gap, r = bd.right - gap, t = cy - gh / 2f, b = cy + gh / 2f;
                 if (r <= l || b <= t) return;
                 float f = Math.min(100, c.tabItemBg) / 100f;
-                drawGlass(cv, l, t, r, b, f, 1f, c.tabItemColor, selected, true, top); // 投影 + 玻璃，一张缓存位图
+                drawGlass(cv, l, t, r, b, f, 1f, c.tabItemColor, selected, true, true); // 投影 + 玻璃，一张缓存位图 // 投影 + 玻璃，一张缓存位图
             } catch (Throwable ignored) {
             }
         }

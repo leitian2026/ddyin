@@ -441,6 +441,17 @@ final class IconGlass {
             lp.setShader(new LinearGradient(s * .15f, 0f, s * .15f + s * .9f, s,
                     new int[]{0xFFFFFFFF, 0x99FFFFFF, 0x33FFFFFF, 0xB3FFFFFF}, new float[]{0f, .3f, .62f, 1f}, Shader.TileMode.CLAMP));
             cv.drawPath(p, lp);
+            // 1.45.13：厚度——下半部沿边缘往里一道偏暗的内缘
+            Paint dp = new Paint(Paint.ANTI_ALIAS_FLAG);
+            dp.setStyle(Paint.Style.STROKE);
+            dp.setStrokeJoin(Paint.Join.ROUND);
+            dp.setStrokeWidth(Math.max(2f * d, s * .12f));
+            dp.setShader(new LinearGradient(0f, 0f, 0f, s, new int[]{0x00000000, 0x00000000, 0x2E000000, 0x4D000000}, new float[]{0f, .45f, .8f, 1f}, Shader.TileMode.CLAMP));
+            dp.setMaskFilter(new BlurMaskFilter(Math.max(1f, s * .04f), BlurMaskFilter.Blur.NORMAL));
+            cv.save();
+            cv.clipPath(p);
+            cv.drawPath(p, dp);
+            cv.restore();
             // 下缘折射亮弧、左上偏青 / 右下偏暖的色散细边（月牙：把形状错开再抠掉）
             crescent(cv, p, 0f, -1.8f * d, 0x4DFFFFFF, s);
             crescent(cv, p, d, d, 0x3880E0FF, s);

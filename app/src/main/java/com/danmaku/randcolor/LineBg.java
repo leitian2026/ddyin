@@ -248,7 +248,9 @@ final class LineBg {
         cv.restore();
         PAINT.setStyle(Paint.Style.FILL);
         // 玻璃本体：底色只用 60% 的不透明度，让后面的画面透一点出来
-        PAINT.setColor(gray | (a * 3 / 5) << 24);
+        // 1.45.13：不透明度 100% = 完全不透明：本体 = 60% + 40% × 不透明度²
+        float fa = a / 255f;
+        PAINT.setColor(gray | Math.round(a * (0.6f + 0.4f * fa * fa)) << 24);
         cv.drawPath(PATH, PAINT);
         // 磨砂感：整块再盖一层很淡的白，压低后面画面的对比度（没有真正的背景模糊，这是视觉上的近似）
         PAINT.setColor(0xFFFFFF | (a * 18 / 100) << 24);
@@ -282,6 +284,19 @@ final class LineBg {
         cv.save();
         cv.clipPath(PATH);
         cv.drawRoundRect(BOX, rad, rad, gp);
+        cv.restore();
+        // 1.45.13：厚度——下半部沿边缘往里一道偏暗的内缘（上面没有，越往下越深）
+        float dw = Math.max(2f, bh * 0.16f);
+        Paint dp = new Paint(Paint.ANTI_ALIAS_FLAG);
+        dp.setStyle(Paint.Style.STROKE);
+        dp.setStrokeWidth(dw);
+        dp.setShader(new LinearGradient(0f, bt, 0f, bb, new int[]{0x00000000, 0x00000000, 0x2E000000, 0x4D000000}, new float[]{0f, 0.45f, 0.8f, 1f}, Shader.TileMode.CLAMP));
+        dp.setColor(0xFFFFFFFF);
+        dp.setAlpha(a);
+        dp.setMaskFilter(new BlurMaskFilter(Math.max(1f, dw * 0.4f), BlurMaskFilter.Blur.NORMAL));
+        cv.save();
+        cv.clipPath(PATH);
+        cv.drawRoundRect(BOX, rad, rad, dp);
         cv.restore();
         // 最外一圈细而清晰的亮线
         float lw = Math.max(1f, 0.45f * sd);

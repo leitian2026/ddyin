@@ -90,6 +90,8 @@ final class TabGlass {
             }
             try {
                 if (z.row.isLaidOut() && !z.row.isLayoutRequested()) center(z.row, z.scroll, z.strip);
+                z.strip.invalidate(); // 1.45.12：玻璃的不透明度 / 底色 / 大小改了，抖音不会自己重画标签条和每个标签
+                for (int k = 0, n = z.row.getChildCount(); k < n; k++) z.row.getChildAt(k).invalidate();
             } catch (Throwable ignored) {
             }
         }
@@ -347,7 +349,7 @@ final class TabGlass {
      * → 上沿靠左的一条高光（左亮右渐隐）→ 下沿折射回来的亮弧、左上偏青 / 右下偏暖的色散细边。
      * 这个函数只在缓存没命中时画一次进位图（见 drawGlass），画在软件画布上，所以虚化（BlurMaskFilter）、渐变、裁剪都能用，运行时不花钱。
      */
-    static void glass(Canvas cv, float l, float t, float r, float b, float f, float lvl, int color, boolean selected) {
+    static void glass(Canvas cv, float l, float t, float r, float b, float f, float lvl, int color, boolean selected, boolean thick) {
         float w = r - l, h = b - t, rad = h / 2f, k = f * lvl, d = dpf(1f);
         // 本体颜色：默认纯白的薄雾；用户选了底色就保留 60%，只掺 40% 的白，不然选的颜色看不出来
         int col = color == 0 ? 0xFFFFFF : mixWhite(color & 0xFFFFFF, 0.4f);
@@ -357,10 +359,11 @@ final class TabGlass {
         // 本体：偏白的薄雾
         P.setShader(null);
         P.setStyle(Paint.Style.FILL);
-        P.setColor(argb(col, 0.18f * f));
+        // thick（1.45.12，只给顶部标签）：本体更透，只靠边和高光撑形状；选中的标签换成接近白底的一块（对比拉开）
+        P.setColor(argb(col, (thick ? 0.07f : 0.18f) * f));
         cv.drawRoundRect(BX, rad, rad, P);
         if (selected) {
-            P.setColor(argb(0xFFFFFF, 0.14f * k));
+            P.setColor(argb(0xFFFFFF, (thick ? 0.55f * f : 0.14f * k)));
             cv.drawRoundRect(BX, rad, rad, P);
         }
         // 竖向高光
@@ -389,6 +392,21 @@ final class TabGlass {
         cv.clipPath(PT);
         cv.drawRoundRect(BX, rad, rad, gp);
         cv.restore();
+        if (thick) { // 厚度：下半部沿边缘往里一道偏暗的内缘（上面没有，越往下越深），像玻璃的厚边
+            float dw = Math.max(2f * d, h * 0.16f);
+            LinearGradient darkG = new LinearGradient(0f, t, 0f, b, new int[]{0x00000000, 0x00000000, 0x2E000000, 0x4D000000}, new float[]{0f, .45f, .8f, 1f}, Shader.TileMode.CLAMP);
+            Paint dp = new Paint(Paint.ANTI_ALIAS_FLAG);
+            dp.setStyle(Paint.Style.STROKE);
+            dp.setStrokeWidth(dw);
+            dp.setShader(darkG);
+            dp.setColor(0xFFFFFFFF);
+            dp.setAlpha(Math.round(255f * Math.min(1f, k)));
+            dp.setMaskFilter(new BlurMaskFilter(Math.max(1f, dw * 0.4f), BlurMaskFilter.Blur.NORMAL));
+            cv.save();
+            cv.clipPath(PT);
+            cv.drawRoundRect(BX, rad, rad, dp);
+            cv.restore();
+        }
         // 最外一圈细而清晰的亮线（对比比内发光强：左上最亮，右下有一段反光）
         LinearGradient lineG = new LinearGradient(gx, t, gx + h * 0.9f, b,
                 new int[]{0xFFFFFFFF, 0x99FFFFFF, 0x33FFFFFF, 0xB3FFFFFF}, new float[]{0f, 0.3f, 0.62f, 1f}, Shader.TileMode.CLAMP);
@@ -397,7 +415,7 @@ final class TabGlass {
         P.setStrokeWidth(sw);
         P.setShader(lineG);
         P.setColor(0xFFFFFFFF);
-        P.setAlpha(Math.round(255f * Math.min(1f, (selected ? 1f : 0.9f) * k)));
+        P.setAlpha(Math.round(255f * Math.min(1f, (selected ? 1f : 0.9f) * (thick ? 1.25f : 1f) * k)));
         BX.set(l + sw / 2f, t + sw / 2f, r - sw / 2f, b - sw / 2f);
         cv.drawRoundRect(BX, Math.max(0f, rad - sw / 2f), Math.max(0f, rad - sw / 2f), P);
         P.setShader(null);
@@ -462,8 +480,12 @@ final class TabGlass {
 
     /** 画一块玻璃（可带投影）到 cv 上，框是 (l, t, r, b)。从缓存取位图一次绘制；没有就画一张存起来。位置取整到像素。 */
     static void drawGlass(Canvas cv, float l, float t, float r, float b, float f, float lvl, int color, boolean selected, boolean withShadow) {
+        drawGlass(cv, l, t, r, b, f, lvl, color, selected, withShadow, false);
+    }
+
+    static void drawGlass(Canvas cv, float l, float t, float r, float b, float f, float lvl, int color, boolean selected, boolean withShadow, boolean thick) {
         float w = r - l, h = b - t;
-        int flags = (selected ? 1 : 0) | (withShadow ? 2 : 0);
+        int flags = (selected ? 1 : 0) | (withShadow ? 2 : 0) | (thick ? 4 : 0);
         int slot = -1;
         for (int i = 0; i < GC_N; i++) {
             Bitmap bm = GC_BM[i];
@@ -481,7 +503,7 @@ final class TabGlass {
             Bitmap sw = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
             Canvas c = new Canvas(sw);
             if (withShadow) shadow(c, m, m, m + w, m + h, f);
-            glass(c, m, m, m + w, m + h, f, lvl, color, selected);
+            glass(c, m, m, m + w, m + h, f, lvl, color, selected, thick);
             Bitmap hw = sw.copy(Bitmap.Config.HARDWARE, false); // minSdk 27；转成硬件位图（显存），之后绘制不再上传
             if (hw == null) hw = sw;
             else sw.recycle();
@@ -518,7 +540,7 @@ final class TabGlass {
                 float l = bd.left + gap, r = bd.right - gap, t = cy - gh / 2f, b = cy + gh / 2f;
                 if (r <= l || b <= t) return;
                 float f = Math.min(100, c.tabItemBg) / 100f;
-                drawGlass(cv, l, t, r, b, f, 1f, c.tabItemColor, selected, true); // 投影 + 玻璃，一张缓存位图
+                drawGlass(cv, l, t, r, b, f, 1f, c.tabItemColor, selected, true, top); // 投影 + 玻璃，一张缓存位图
             } catch (Throwable ignored) {
             }
         }
@@ -543,7 +565,7 @@ final class TabGlass {
                 if (c.tabRowBg <= 0 || !c.tabGlass) return;
                 Class<?> k = TabHook.itemClass();
                 if (k == null) return;
-                int sl = scroll.getLeft(), sr = scroll.getRight(), sx = 0; // 1.45.11：不用 scrollX（它在布局之外变，没有事件通知，会把过期的值固化下来）
+                int sl = scroll.getLeft(), sr = scroll.getRight(), sx = scroll.getScrollX();
                 int ox = row.getLeft() - sx + sl, oy = row.getTop() + scroll.getTop();
                 float L = Float.MAX_VALUE, T = Float.MAX_VALUE, R = -Float.MAX_VALUE, B = -Float.MAX_VALUE;
                 for (int i = 0, n = row.getChildCount(); i < n; i++) {
@@ -559,7 +581,7 @@ final class TabGlass {
                 if (R <= L || B <= T) return;
                 float cy = (T + B) / 2f, half = (B - T) * c.tabItemH / 100f / 2f + c.tabRowPadY * dpf(0.5f);
                 float gap = c.tabGap * dpf(0.5f) / 2f, px = c.tabRowPadX * dpf(0.5f); // 最外面的标签玻璃的外沿 = 标签框外沿往里缩缝的一半
-                drawGlass(cv, L + gap - px, cy - half, R - gap + px, cy + half, Math.min(100, c.tabRowBg) / 100f, 0.75f, c.tabRowColor, false, false);
+                drawGlass(cv, L + gap - px, cy - half, R - gap + px, cy + half, Math.min(100, c.tabRowBg) / 100f, 0.75f, c.tabRowColor, false, false, true);
             } catch (Throwable ignored) {
             }
         }

@@ -560,23 +560,18 @@ final class DanmakuHook {
     }
 
     /**
-     * 1.45.14：颜色改成一张 100 色的色表（类加载时算一次，之后取色只是查表，比原来每次 HSV→RGB 还省）：25 个色相（每隔 14.4°）× 4 档（饱和度 / 明度），
-     * 4 档的色相错开 3.6°，所以 100 个颜色两两不同；每个颜色自己都过一遍 legible(0.34)，保证深色画面上看得清（红、紫、蓝本来太暗的已经提亮，不再靠设置去提）。
-     * 同一个顺序号永远得到同一个颜色，所以弹幕滚动、被重新测量都不会闪。顺序号 × 37 对 100 取模（37 和 100 互质）：先后出现的弹幕色相拉得很开，连续 100 条互不重复。
-     * 模式 0 直接用表里的色；其他模式再按号混出 0～25% 的白（淡一点的变化）。设置页「字的最低亮度」仍然生效（只提亮比它暗的）。
+     * 1.45.15：颜色是一张 60 色的色表（类加载时算一次，取色只是查表）：60 个色相，每隔 6°，每个色相只有一个版本，没有深浅变体
+     * （深浅不同的不算不同颜色；一圈色相里肉眼分得开的也就几十种，所以不做 100 个）。每个颜色自己过一遍 legible(0.34)，保证深色画面上看得清
+     * （红、紫、蓝本来太暗的提亮到珊瑚红、薰衣草、天蓝，色相不变）。
+     * 同一个顺序号永远得到同一个颜色，弹幕滚动、被重新测量都不会闪。顺序号 × 37 对 60 取模（37 和 60 互质）：先后出现的弹幕色相差得很远，连续 60 条互不重复。
+     * 模式 0 直接用表里的色；其他模式再按号混出 0～25% 的白。设置页「字的最低亮度」仍然生效（只提亮比它暗的）。
      */
+    private static final int N_PAL = 60;
     private static final int[] PAL = buildPal();
 
     private static int[] buildPal() {
-        final float[] ss = {1f, 0.68f, 0.86f, 0.48f};
-        final float[] vv = {1f, 1f, 0.9f, 1f};
-        int[] pal = new int[100];
-        for (int t = 0; t < 4; t++) {
-            for (int i = 0; i < 25; i++) {
-                float h = ((i * 14.4f + t * 3.6f) % 360f) / 60f;
-                pal[t * 25 + i] = LineBg.legible(hsv(h, ss[t], vv[t]), 0.34f);
-            }
-        }
+        int[] pal = new int[N_PAL];
+        for (int i = 0; i < N_PAL; i++) pal[i] = LineBg.legible(hsv(i * 360f / N_PAL / 60f, 0.85f, 1f), 0.34f);
         return pal;
     }
 
@@ -597,7 +592,7 @@ final class DanmakuHook {
     }
 
     private static int pick(int key, int mode, int lift) {
-        int rgb = PAL[(int) ((key * 37L) % 100L)];
+        int rgb = PAL[(int) ((key * 37L) % N_PAL)];
         if (mode != 0) {
             float w = ((mix(key) >>> 16) & 0xFF) / 255f * 0.25f;
             int r = (rgb >> 16) & 255, g = (rgb >> 8) & 255, b = rgb & 255;

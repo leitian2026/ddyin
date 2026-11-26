@@ -6,6 +6,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 
 import java.lang.reflect.Method;
 
@@ -18,6 +19,20 @@ import de.robv.android.xposed.XC_MethodHook;
  * 抖音的识别器漏判时（TextRec：两下点击 onInterceptTouchEvent 都收到了，但 onDoubleTap 没被调到）：dtap.cut 自己按「第一下抬起 → 第二下按下」认双击兜底，
  *     间隔 400ms、落点在系统 DoubleTapSlop 以内，第一下必须是一次点按；点在小的可点控件（按钮）上不算。没有定时器、没有新钩子，只在已有的拦截钩子里存两个数、做一次比较。
  *
+ * 图文帖（1.45.16）：图文页里上面这条路认不出双击——MonitorScrollFrameLayout#onInterceptTouchEvent 在单击 / 双击时只收到按下、收不到抬起，onDoubleTap 一次都没被调到。
+ *     图文页的触摸是 CommonPhotosInitPresenter#onTouchEvent 转给 LongPressLayout#dispatchTouchEvent 的，所以另外挂两个类名方法名都没混淆的钩子：
+ *     dtap.photo（CommonPhotosInitPresenter#onTouchEvent）进来时置一个静态标记、出来时清掉；dtap.lpd（LongPressLayout#dispatchTouchEvent）只在标记置上时工作，
+ *     按「第一下抬起 → 第二下按下」认双击（规则和 dtap.cut 自己认的那一条一样：400ms、DoubleTapSlop、第一下必须是点按），认到后往上找这一页的 MonitorScrollFrameLayout，
+ *     用同一个 commentTarget / open 打开评论，并把第二下的整个手势（按下到抬起 / 取消）吞掉，LongPressLayout 收不到，红心和点赞不会发生。
+ *     找不到评论按钮：不吞、不开，双击照常点赞。没有定时器、没有扫描；普通视频里 dtap.lpd 每次触摸只多一次静态读。
+ *     依据（TextRec 41.4.0 (410400)，textrec-tasks-20261126-123958 / 123447；红心的时间见 textrec-tasks-20261126-095859，41.3.0）：
+ *      - 图文帖里一次触摸的栈（3 份采样栈每份都有）：View.dispatchTouchEvent ← X.0QY7.onTouch ← X.0QQD.onTouch ← Y.ATListenerS1209S0100000_32.onTouch ← X.12wj.onTouchEvent
+ *        ← CommonPhotosInitPresenter.onTouchEvent ← LongPressLayout.dispatchTouchEvent。TextRec 对这两个钩点评级：LongPressLayout#dispatchTouchEvent 是 A 级（覆写框架方法），
+ *        CommonPhotosInitPresenter#onTouchEvent 稳定（名字没混淆）；
+ *      - 图文帖双击两下，LongPressLayout#dispatchTouchEvent 都收到完整的按下和抬起；MonitorScrollFrameLayout#onInterceptTouchEvent 只收到两次按下（返回 false），没有抬起；onDoubleTap 0 次；
+ *      - 红心：第二下按下之后 DiggLayout 里加红心 ImageView，时间上在 LongPressLayout#onTouchEvent 返回之前 1ms（49976 / 49977）。
+ *     没有证据的部分：吞掉第二下之后点赞和红心确实不发生（时间对得上，但没有栈证明点赞是 LongPressLayout 里触发的）；LongPressLayout 是这一页 MonitorScrollFrameLayout 的后代（按 40.9.0 的视图树，
+ *     41.4.0 的图文页没有抓过视图树）；两份记录里的图文帖都是从搜索进入的详情页（UltraDetailActivity），首页信息流里的图文没有追踪过；第一下点击已经把视频暂停（LongPressLayout 在抬起时就点了），这一步拦不住；没编译、没上机。
  * 1.26.4 起不再有混淆名的双击兜底（BaseListFragmentPanel#LLLIILIL）：它在前面这条路径失效时照样能打开评论，
  * 会把「前面的钩子到底有没有用」盖住，设置页里钩子状态再好看也不知道是不是真的在起作用。
  * 现在这条路径失效 = 双击恢复成点赞，一眼就能看出来。（LLLIILIL 的追踪证据：40.7.0 里一次双击 X.06y9.onTouch 只调它一次，红心和点赞都从它往下走。）
@@ -96,6 +111,19 @@ final class CommentHook {
     private static final XC_MethodHook SEEN_HOOK = new DtapSeenHook();
     private static final XC_MethodHook CUT_HOOK = new DtapCutHook();
 
+    /** 图文帖（见类注释）：图文页的触摸入口和 LongPressLayout，类名都没混淆。 */
+    private static final String PHOTO_PRESENTER = "com.bytedance.ies.ugc.aweme.horizon.feed.presenter.CommonPhotosInitPresenter";
+    private static final String LONG_PRESS = "com.ss.android.ugc.aweme.feed.ui.LongPressLayout";
+    /** 往上找页面容器最多看几层（LongPressLayout 到 MonitorScrollFrameLayout 实测 3 层，留余量）。 */
+    private static final int PAGE_UP = 10;
+    /** 主线程上的触摸分发：正在 CommonPhotosInitPresenter#onTouchEvent 里 / 正在吞第二下的手势。 */
+    private static boolean inPhotos, phSwallow;
+    /** 图文页里自己认双击：第一下按下 / 抬起的时刻和位置（LongPressLayout 自己的坐标，两下用同一个控件，坐标系一致）。 */
+    private static long phDownAt, phUpAt;
+    private static float phDownX, phDownY, phUpX, phUpY;
+    private static final XC_MethodHook PHOTO_HOOK = new PhotoMarkHook();
+    private static final XC_MethodHook LPD_HOOK = new PhotoDtapHook();
+
     /** 三个钩子的类名、方法名都没混淆；找不到就放弃并记住（HookGuard），双击点赞照常。另外 dtap.btn 只确认评论按钮的类还在（不挂钩）。 */
     static void tryHook(ClassLoader cl) {
         if (cl == null) return;
@@ -106,6 +134,13 @@ final class CommentHook {
                 "MonitorScrollFrameLayout 里没有 onInterceptTouchEvent(MotionEvent)（抖音改了这个类，需要用 TextRec 重新追踪双击时的触摸分发）", cl);
         HookGuard.hook(HookGuard.DTAP_CLICK, FEED_ROOT, voidNamed(CLICK_METHOD), CLICK_HOOK,
                 "FeedComponentsRoot 里没有 void handleSingleClick（抖音改了单击处理，需要用 TextRec 重新追踪单击暂停的调用栈）", cl);
+        // 图文帖：LongPressLayout#dispatchTouchEvent 每次触摸都会走到，开关没开不挂（不调 HookGuard，状态保持「还没有结论」）；开了之后回到前台会补挂
+        if (DanmakuHook.cfg.dtapToComment) {
+            HookGuard.hook(HookGuard.DTAP_PHOTO, PHOTO_PRESENTER, motion("onTouchEvent"), PHOTO_HOOK,
+                    "CommonPhotosInitPresenter 里没有 onTouchEvent(MotionEvent)（抖音改了图文页的触摸入口，需要用 TextRec 重新追踪图文双击时的调用栈）", cl);
+            HookGuard.hook(HookGuard.DTAP_LPD, LONG_PRESS, motion("dispatchTouchEvent"), LPD_HOOK,
+                    "LongPressLayout 里没有 dispatchTouchEvent(MotionEvent)（抖音改了这个类，需要用 TextRec 重新追踪图文双击时的触摸分发）", cl);
+        }
         // 评论按钮的类还在不在（只找类不挂钩，和 pub.anchor 一样）：不在 = 双击会放行成点赞，设置页能看到
         if (HookGuard.find(HookGuard.DTAP_BTN, BTN_CLASS, cl) != null) HookGuard.ok(HookGuard.DTAP_BTN, "");
     }
@@ -230,6 +265,112 @@ final class CommentHook {
             } catch (Throwable ignored) {
             }
         }
+    }
+
+    /** 图文页的触摸入口：进来时标记「这一次触摸来自图文页」，出来时清掉（原方法抛异常也会清）。热路径：每次触摸两次静态写，不分配。 */
+    private static final class PhotoMarkHook extends XC_MethodHook {
+        @Override
+        protected void beforeHookedMethod(MethodHookParam p) {
+            try {
+                if (DanmakuHook.cfg.dtapToComment) inPhotos = true;
+            } catch (Throwable ignored) {
+            }
+        }
+
+        @Override
+        protected void afterHookedMethod(MethodHookParam p) {
+            try {
+                inPhotos = false;
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /**
+     * 图文页里 LongPressLayout#dispatchTouchEvent：标记没置上（普通视频、直播等）一次静态读就返回。
+     * 标记置上时按「第一下抬起 → 第二下按下」认双击；认到、并且这一页找得到评论按钮，就打开评论，把第二下的整个手势吞掉（返回 true，原方法不执行）。
+     * 找不到评论按钮：放行，双击照常点赞。每次触摸只做几次比较；找页面和评论按钮只在认到双击时做一次。
+     */
+    private static final class PhotoDtapHook extends XC_MethodHook {
+        @Override
+        protected void beforeHookedMethod(MethodHookParam p) {
+            try {
+                if (!inPhotos) return;
+                MotionEvent e = (MotionEvent) p.args[0];
+                int a = e.getActionMasked();
+                if (phSwallow) {
+                    if (a != MotionEvent.ACTION_DOWN) { // 第二下的 MOVE / UP / CANCEL：LongPressLayout 不收
+                        p.setResult(Boolean.TRUE);
+                        if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) phSwallow = false;
+                        return;
+                    }
+                    phSwallow = false; // 又来了一个按下 = 新的手势
+                }
+                if (!(p.thisObject instanceof View)) return;
+                View v = (View) p.thisObject;
+                switch (a) {
+                    case MotionEvent.ACTION_DOWN: {
+                        long t = e.getEventTime();
+                        float x = e.getX(), y = e.getY();
+                        if (phUpAt != 0 && t - phUpAt <= DTAP_GAP_MS) {
+                            float sl = ViewConfiguration.get(v.getContext()).getScaledDoubleTapSlop();
+                            float dx = x - phUpX, dy = y - phUpY;
+                            if (dx * dx + dy * dy <= sl * sl) {
+                                phUpAt = 0;
+                                phDownAt = 0;
+                                View target = commentTarget(pageOf(v));
+                                if (target == null) return; // 找不到评论按钮：放行，双击照常点赞
+                                long now = SystemClock.uptimeMillis();
+                                if (now - lastOpenAt >= REOPEN_GAP_MS) {
+                                    lastOpenAt = now;
+                                    open(target);
+                                }
+                                phSwallow = true;
+                                p.setResult(Boolean.TRUE);
+                                return;
+                            }
+                        }
+                        phUpAt = 0;
+                        phDownAt = t;
+                        phDownX = x;
+                        phDownY = y;
+                        break;
+                    }
+                    case MotionEvent.ACTION_UP: {
+                        if (phDownAt != 0) {
+                            long t = e.getEventTime();
+                            float sl = ViewConfiguration.get(v.getContext()).getScaledTouchSlop();
+                            float dx = e.getX() - phDownX, dy = e.getY() - phDownY;
+                            if (t - phDownAt < ViewConfiguration.getLongPressTimeout() && dx * dx + dy * dy <= sl * sl) {
+                                phUpAt = t;
+                                phUpX = e.getX();
+                                phUpY = e.getY();
+                            }
+                        }
+                        phDownAt = 0;
+                        break;
+                    }
+                    case MotionEvent.ACTION_POINTER_DOWN:
+                    case MotionEvent.ACTION_CANCEL:
+                        phUpAt = 0;
+                        phDownAt = 0;
+                        break;
+                    default:
+                        break;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /** 从 v 往上找这一页的 MonitorScrollFrameLayout（类名比较，最多 PAGE_UP 层）。只在认到双击时调用一次。 */
+    private static View pageOf(View v) {
+        ViewParent q = v.getParent();
+        for (int i = 0; i < PAGE_UP && q instanceof View; i++) {
+            if (q.getClass().getName().equals(MONITOR)) return (View) q;
+            q = q.getParent();
+        }
+        return null;
     }
 
     /** 拦住双击之后的一小段时间里，抖音延迟执行的「单击处理」（切换暂停 / 播放）直接跳过。热路径：一次静态读、一次时间比较，不分配。 */

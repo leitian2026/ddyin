@@ -3,7 +3,7 @@
 ## 功能
 1. **弹幕随机色**：每条弹幕随机颜色，保留黑色描边。
 2. **拦截点赞**：双击视频不再点赞，也不出双击红心（1.29.0 起没有「右侧爱心按钮改评论」）。1.33.1 起，找不到评论按钮的视频（没有评论、抖音改了控件）双击照常点赞，不再「既不点赞也不开评论」。
-3. **打开评论**：双击视频改为打开当前视频的评论。双击这一路只走名字没混淆的 `onDoubleTap` + `MonitorScrollFrameLayout#onInterceptTouchEvent`（+ `handleSingleClick`）；1.26.4 起去掉了混淆名的 `LLLIILIL` 兜底；1.33.1 起评论按钮按类名 `FeedCommentImageView` 在这一页里找，不再按描述文字。
+3. **打开评论**：双击视频改为打开当前视频的评论。1.45.16 起图文视频里也生效（图文页的触摸走另外两个钩子，见下面 1.45.16）。双击这一路只走名字没混淆的 `onDoubleTap` + `MonitorScrollFrameLayout#onInterceptTouchEvent`（+ `handleSingleClick`）；1.26.4 起去掉了混淆名的 `LLLIILIL` 兜底；1.33.1 起评论按钮按类名 `FeedCommentImageView` 在这一页里找，不再按描述文字。
 4. **视频时长常显**（1.15）：自己放一行 `00:12 / 03:45`，随播放走动。1.22.0 起它是视频文案下面的一行（有发布日期地点时在它的正下方），可以调字号和颜色；1.27.0 起每个视频页自己带一个；1.28.0 起它是盖在页面上的浮层，位置全屏任意可调。
 
 5. **无操作自动退出**（1.17.8）：连续 N 分钟没有操作抖音（触摸、按键、回到前台都算操作），就结束抖音进程；后台也计时。设置页里填分钟数，0 = 关闭。
@@ -22,6 +22,25 @@
 
 ## 使用
 设置页的内容按功能折叠成一个个分组（点标题展开，展开一个其他自动收起；有总开关的分组不用展开就能开关）。前提：LSPosed 里启用模块、作用域勾选抖音、强杀抖音重开；改完点底部「保存并应用」（需要 root），抖音回到前台即生效。不推送则用默认：开启 + 鲜艳随机。
+
+## 1.45.16：双击改评论支持图文视频
+- **要什么**：图文视频（图文帖）里双击不开评论，还是点赞出红心；普通视频正常。
+- **依据（TextRec，抖音 41.4.0 (410400)，`textrec-tasks-20261126-123958` / `-123447`；红心的时间见 41.3.0 的 `-095859`）**：
+  - 图文帖里 `MonitorScrollFrameLayout#onInterceptTouchEvent` 单击和双击都只收到按下、收不到抬起，`onDoubleTap` 一次都没被调到，所以原来的 `dtap.seen` / `dtap.cut` 两条路在图文页里都认不出双击；
+  - 图文页的一次触摸的栈（3 份采样栈每份都有）：`View.dispatchTouchEvent` ← `X.0QY7.onTouch` ← `X.0QQD.onTouch` ← `Y.ATListenerS1209S0100000_32.onTouch` ← `X.12wj.onTouchEvent` ← `CommonPhotosInitPresenter.onTouchEvent` ← `LongPressLayout.dispatchTouchEvent`。`LongPressLayout#dispatchTouchEvent` 在两下点击里都收到完整的按下和抬起；
+  - 红心：第二下按下之后 `DiggLayout` 里加红心，时间上在 `LongPressLayout#onTouchEvent` 返回之前 1ms。
+- **做法**：新增 2 个钩子，类名方法名都没混淆，都走 `HookGuard`（`dtap.photo`、`dtap.lpd`，设置页「钩子状态」里能看到）：
+  - `dtap.photo` = `CommonPhotosInitPresenter#onTouchEvent`：进来置一个静态标记「这次触摸来自图文页」，出来（原方法抛异常也会）清掉。
+  - `dtap.lpd` = `LongPressLayout#dispatchTouchEvent`：标记没置上（普通视频、直播）一次静态读就返回。置上时按「第一下抬起 → 第二下按下」认双击，规则和 `dtap.cut` 自己认的那条一样（间隔 400ms、落点在系统 DoubleTapSlop 以内、第一下必须是点按）。认到后往上找这一页的 `MonitorScrollFrameLayout`（类名比较，最多 10 层），用同一个 `commentTarget` / `open` 打开评论，并把第二下的整个手势（按下到抬起 / 取消）吞掉，`LongPressLayout` 收不到，红心和点赞不应该发生。
+  - 找不到评论按钮：不吞、不开，双击照常点赞（没有兜底）。吞着的时候来了新的按下就当新手势。
+- **功耗 / 计算量**：没有定时器、没有轮询、没有扫描。开关 `dtapToComment` 没开时这两个钩子不挂。`dtap.photo`：每次图文页触摸 2 次静态写，不分配。`dtap.lpd`：普通视频里每次触摸 1 次静态读；图文页里每次触摸几次比较，`ViewConfiguration.get` 是系统缓存的，不分配；往上找页面和找评论按钮只在认到双击时做一次。`IdleExit` 没动，`hookResume` 没动。
+- **没有证据 / 没做的**：
+  - 吞掉第二下之后点赞和红心确实不发生：只有时间上对得上，没有栈证明点赞是 `LongPressLayout` 里触发的；
+  - `LongPressLayout` 是这一页 `MonitorScrollFrameLayout` 的后代：按 40.9.0 的视图树，41.4.0 的图文页没抓过视图树，层级变了会安静失效；
+  - 两份记录里的图文帖都是从搜索进入的详情页（`UltraDetailActivity`），首页信息流里的图文没有追踪过；
+  - **第一下点击已经把视频暂停**（`LongPressLayout` 在抬起时就点了），这一步拦不住，评论打开后图文是暂停的；这次没找到更稳的办法，没有改；
+  - 没在真机编译、没上机；用桩类编译过 `CommentHook` / `HookGuard`，并按模拟的触摸序列测过认双击的逻辑（正常双击、间隔太长、距离太远、第一下太久 / 是滑动 / 被取消、找不到评论按钮、吞着时来新按下、开关）。
+- **RULES_REV 没加**：只新增钩子，没改已有钩子的匹配规则。
 
 ## 1.45.15：弹幕颜色改成 60 个不同色相（去掉深浅变体）
 - 1.45.14 的 100 色其实是 25 个色相 × 4 档深浅，同一色相的几档看上去是一个颜色。现在 60 个色相、每隔 6°、每个只有一个版本（饱和度 0.85，亮度过 `legible(0.34)`）；顺序号 × 37 % 60 取色，连续 60 条不重复。其余同 1.45.14。没编译、没上机。

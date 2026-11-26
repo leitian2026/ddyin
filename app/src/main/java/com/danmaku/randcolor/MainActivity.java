@@ -1315,6 +1315,8 @@ public class MainActivity extends Activity {
             {"dtap.cut", "双击改评论：拦在点赞之前"},
             {"dtap.click", "双击改评论：不让单击暂停视频"},
             {"dtap.btn", "双击改评论：评论按钮的类（找不到时双击照常点赞）"},
+            {"dtap.photo", "双击改评论（图文）：标记这次触摸来自图文页（CommonPhotosInitPresenter#onTouchEvent）"},
+            {"dtap.lpd", "双击改评论（图文）：认双击并拦住第二下（LongPressLayout#dispatchTouchEvent）"},
             {"time.progress", "视频时长：播放进度"},
             {"tab.hide", "首页顶部标签隐藏"},
             {"tab.bottom", "首页底部导航液态玻璃：认「首页 / 朋友 / 消息 / 我」的选中状态（DuxTextView#setAlpha）"},

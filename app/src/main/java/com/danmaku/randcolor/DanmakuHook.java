@@ -192,6 +192,8 @@ final class DanmakuHook {
                             HookGuard.noteVersion(a);
                         } catch (Throwable ignored) {
                         }
+                        // Runtime retry gate: other onResume handlers and IdleExit already ran above.
+                        if (!cfg.autoCheckRepair) return;
                         // 每个钩子都有结论（挂上 / 放弃 / 不再重试）之后，回到前台不再扫描类、不再挂钩
                         if (HookGuard.allSettled()) return;
                         ClassLoader cl = a.getClass().getClassLoader();

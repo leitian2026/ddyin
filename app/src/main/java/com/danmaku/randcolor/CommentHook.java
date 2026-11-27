@@ -127,6 +127,26 @@ final class CommentHook {
     private static final XC_MethodHook PHOTO_HOOK = new PhotoMarkHook();
     private static final XC_MethodHook LPD_HOOK = new PhotoDtapHook();
 
+    /**
+     * 自动修复开启时，回到前台清理触摸过程中遗留的临时状态。
+     * 不重新挂钩、不合成触摸、不改变抖音原行为；仅清除已结束 Activity 生命周期可能遗留的双击序列标记。
+     */
+    static void repairTransientState() {
+        try {
+            inIntercept = false;
+            dtapSeen = false;
+            selfDtap = false;
+            downAt = 0;
+            upAt = 0;
+            dtapAt = 0;
+            inPhotos = false;
+            phSwallow = false;
+            phDownAt = 0;
+            phUpAt = 0;
+        } catch (Throwable ignored) {
+        }
+    }
+
     /** 三个钩子的类名、方法名都没混淆；找不到就放弃并记住（HookGuard），双击点赞照常。另外 dtap.btn 只确认评论按钮的类还在（不挂钩）。 */
     static void tryHook(ClassLoader cl) {
         if (cl == null) return;

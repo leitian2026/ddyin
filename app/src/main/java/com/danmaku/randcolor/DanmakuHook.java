@@ -192,9 +192,8 @@ final class DanmakuHook {
                             HookGuard.noteVersion(a);
                         } catch (Throwable ignored) {
                         }
-                        // Runtime retry gate: other onResume handlers and IdleExit already ran above.
-                        if (!cfg.autoCheckRepair) return;
-                        CommentHook.repairTransientState(); // 清理遗留的双击 / 图文触摸状态，不重挂已成功钩子
+                        // 开了「运行时自动检查 / 修复」才清理遗留的双击 / 图文触摸状态；下面的钩子重试不受这个开关影响（HOOKS.md：没有结论的钩子每次回到前台再重试，直到都有结论）
+                        if (cfg.autoCheckRepair) CommentHook.repairTransientState();
                         // 每个钩子都有结论（挂上 / 放弃 / 不再重试）之后，回到前台不再扫描类、不再挂钩
                         if (HookGuard.allSettled()) return;
                         ClassLoader cl = a.getClass().getClassLoader();

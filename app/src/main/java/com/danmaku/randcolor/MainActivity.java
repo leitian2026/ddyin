@@ -527,7 +527,7 @@ public class MainActivity extends Activity {
         watch(etPkg);
         Section sAdv = new Section("目标 App 与钩子状态", false, null, () -> "包名 " + etPkg.getText().toString().trim());
         swAutoCheckRepair = new Switch(this);
-        sAdv.body.addView(switchRow("运行时自动检查 / 修复", "开启后，回到前台时重新尝试尚未挂上的钩子；不会强制重挂已成功的钩子。关闭则停止这类检查和重试。", swAutoCheckRepair));
+        sAdv.body.addView(switchRow("运行时自动检查 / 修复", "开启后，回到前台时清理双击 / 图文触摸遗留的临时状态。尚未挂上的钩子的重试始终进行，不受这个开关影响。", swAutoCheckRepair));
         sAdv.body.addView(divider());
         sAdv.body.addView(sub("包名"));
         sAdv.body.addView(note("要作用的 App，多个包名用逗号分隔，默认是抖音。"));

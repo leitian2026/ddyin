@@ -12,7 +12,7 @@ import java.util.Properties;
 /** 配置：模块界面写出，目标 App 里的 Hook 读取。两边共用同一个类。默认值 = 开启 + 鲜艳随机 + 按弹幕对象固定颜色。 */
 public final class DanmakuConfig {
     public boolean enabled = true;
-    /** Runtime checks: retry hooks still pending only; default disabled. */
+    /** 回到前台时清理双击 / 图文触摸遗留的临时状态（不影响钩子重试）；默认关。 */
     public boolean autoCheckRepair = false;
     /** 0 = 鲜艳（高饱和高亮度）  1 = 任意（含浅色/粉彩） */
     public int mode = 0;

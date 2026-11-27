@@ -121,8 +121,13 @@ final class CommentHook {
     private static final String LONG_PRESS = "com.ss.android.ugc.aweme.feed.ui.LongPressLayout";
     /** 往上找页面容器最多看几层（LongPressLayout 到 MonitorScrollFrameLayout 实测 3 层，留余量）。 */
     private static final int PAGE_UP = 10;
-    /** 主线程上的触摸分发：正在 CommonPhotosInitPresenter#onTouchEvent 里 / 正在吞第二下的手势。 */
-    private static boolean inPhotos, phSwallow;
+    /** 主线程上的触摸分发：正在 CommonPhotosInitPresenter#onTouchEvent 里。 */
+    private static boolean inPhotos;
+    /**
+     * 正在吞的那一下手势的 downTime（0 = 没在吞）。1.45.19 起用手势自己的标识（同一次手势的所有事件 downTime 相同）代替原来的布尔值：
+     * 后面来的事件如果不是这次手势的，说明这次吞手势没有收尾（没等到抬起 / 取消），当场作废，不会误吞别的手势。
+     */
+    private static long phSwallowDown;
     /** 图文页里自己认双击：第一下按下 / 抬起的时刻和位置（LongPressLayout 自己的坐标，两下用同一个控件，坐标系一致）。 */
     private static long phDownAt, phUpAt;
     private static float phDownX, phDownY, phUpX, phUpY;
@@ -130,11 +135,29 @@ final class CommentHook {
     private static final XC_MethodHook LPD_HOOK = new PhotoDtapHook();
 
     /**
+     * 修复状态浮窗（RepairPanel）显示的数字，都在主线程里写 / 读，只在发生时才动：
+     * repairRuns / repairCleared / lastRepairAt / lastMask = 回到前台的清理（autoCheckRepair 开着才有）：次数、清掉的「进行中」状态个数、上次的时刻（毫秒）、上次清掉的是哪几个（RepairPanel 里按位对名字）；
+     * gestureExpired = 吞手势没有收尾、被后来的事件当场作废的次数（和 autoCheckRepair 开不开无关，是识别逻辑自己的收尾）。
+     */
+    static int repairRuns, repairCleared, gestureExpired, lastMask;
+    static long lastRepairAt;
+    /** lastMask 的位：1 拦截判断中、2 抖音识别到双击、4 自己认出双击、8 图文触摸中、16 正在吞第二下的手势。 */
+    static final int M_INTERCEPT = 1, M_SEEN = 2, M_SELF = 4, M_PHOTOS = 8, M_SWALLOW = 16;
+
+    /**
      * 自动修复开启时，回到前台清理触摸过程中遗留的临时状态。
      * 不重新挂钩、不合成触摸、不改变抖音原行为；仅清除已结束 Activity 生命周期可能遗留的双击序列标记。
+     * 「清掉了几个」只数五个表示「正在进行中」的状态（见 M_*）；两下点击的时间 / 坐标记录和 dtapAt 平时本来就留着上一次的值，
+     * 它们都按时间比较，清掉也不算修复，不计数。
      */
     static void repairTransientState() {
         try {
+            int mask = 0;
+            if (inIntercept) mask |= M_INTERCEPT;
+            if (dtapSeen) mask |= M_SEEN;
+            if (selfDtap) mask |= M_SELF;
+            if (inPhotos) mask |= M_PHOTOS;
+            if (phSwallowDown != 0) mask |= M_SWALLOW;
             inIntercept = false;
             dtapSeen = false;
             selfDtap = false;
@@ -142,9 +165,13 @@ final class CommentHook {
             upAt = 0;
             dtapAt = 0;
             inPhotos = false;
-            phSwallow = false;
+            phSwallowDown = 0;
             phDownAt = 0;
             phUpAt = 0;
+            repairRuns++;
+            repairCleared += Integer.bitCount(mask);
+            lastMask = mask;
+            lastRepairAt = System.currentTimeMillis();
         } catch (Throwable ignored) {
         }
     }
@@ -314,7 +341,8 @@ final class CommentHook {
     /**
      * 图文页里 LongPressLayout#dispatchTouchEvent：标记没置上（普通视频、直播等）一次静态读就返回。
      * 标记置上时按「第一下抬起 → 第二下按下」认双击；认到、并且这一页找得到评论按钮，就打开评论，把第二下的整个手势吞掉（返回 true，原方法不执行）。
-     * 找不到评论按钮：放行，双击照常点赞。每次触摸只做几次比较；找页面和评论按钮、补点一次，只在认到双击时做一次。
+     * 找不到评论按钮：放行，双击照常点赞。每次触摸只做几次比较；找页面和评论按钮，只在认到双击时做一次。
+     * 吞手势用第二下的 downTime 认「这一次手势」（phSwallowDown）：只吞同一手势的后续事件；来的不是这次手势的事件 = 上一次吞手势没有收尾，当场作废并计数（gestureExpired）。
      */
     private static final class PhotoDtapHook extends XC_MethodHook {
         @Override
@@ -323,13 +351,16 @@ final class CommentHook {
                 if (!inPhotos) return;
                 MotionEvent e = (MotionEvent) p.args[0];
                 int a = e.getActionMasked();
-                if (phSwallow) {
-                    if (a != MotionEvent.ACTION_DOWN) { // 第二下的 MOVE / UP / CANCEL：LongPressLayout 不收
+                if (phSwallowDown != 0) {
+                    if (a != MotionEvent.ACTION_DOWN && e.getDownTime() == phSwallowDown) { // 第二下自己的 MOVE / UP / CANCEL：LongPressLayout 不收
                         p.setResult(Boolean.TRUE);
-                        if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) phSwallow = false;
+                        if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) phSwallowDown = 0;
                         return;
                     }
-                    phSwallow = false; // 又来了一个按下 = 新的手势
+                    // 又来了按下，或者来的不是被吞的那一下手势的事件：上一次吞手势没有收尾，作废，当作新的手势处理（只在出了这种情况时才多做这几步，不在每次触摸里）
+                    phSwallowDown = 0;
+                    gestureExpired++;
+                    RepairPanel.changed();
                 }
                 if (!(p.thisObject instanceof View)) return;
                 View v = (View) p.thisObject;
@@ -351,7 +382,7 @@ final class CommentHook {
                                     lastOpenAt = now;
                                     open(target);
                                 }
-                                phSwallow = true;
+                                phSwallowDown = e.getDownTime();
                                 p.setResult(Boolean.TRUE); // 第二下不进 LongPressLayout
                                 return;
                             }

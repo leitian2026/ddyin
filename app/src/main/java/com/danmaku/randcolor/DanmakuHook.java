@@ -194,6 +194,11 @@ final class DanmakuHook {
                         }
                         // 开了「运行时自动检查 / 修复」才清理遗留的双击 / 图文触摸状态；下面的钩子重试不受这个开关影响（HOOKS.md：没有结论的钩子每次回到前台再重试，直到都有结论）
                         if (cfg.autoCheckRepair) CommentHook.repairTransientState();
+                        // 修复状态浮窗（repairStatus，默认关）：放在清理之后、「钩子都有结论就 return」之前，这样清理结果每次回到前台都能显示；自己包 try，不影响后面的钩子重试
+                        try {
+                            RepairPanel.onResume(a);
+                        } catch (Throwable ignored) {
+                        }
                         // 每个钩子都有结论（挂上 / 放弃 / 不再重试）之后，回到前台不再扫描类、不再挂钩
                         if (HookGuard.allSettled()) return;
                         ClassLoader cl = a.getClass().getClassLoader();

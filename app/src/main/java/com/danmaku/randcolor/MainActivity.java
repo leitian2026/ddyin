@@ -58,7 +58,7 @@ public class MainActivity extends Activity {
     /** 首页顶部标签行里的 13 个标签（来自 TextRec 追踪，40.7.0）；勾选 = 隐藏。 */
     private static final String[] TAB_LABELS = {"推荐", "关注", "热点", "同城", "商城", "经验", "游戏", "少儿", "精选", "团购", "免费看剧", "短剧", "直播"};
     private final CheckBox[] cbTabs = new CheckBox[TAB_LABELS.length];
-    private Switch swEnabled, swDtap, swTime, swPub, swProfFav, swLp, swAutoCheckRepair;
+    private Switch swEnabled, swDtap, swTime, swPub, swProfFav, swLp, swAutoCheckRepair, swRepairStatus;
     private LinearLayout segMode, statusCard;
     /** 时长 / 发布信息的字号（sp）、三处颜色（0 = 默认 / 不改）、发布信息的积木列表。 */
     private SizeField timeSizeF, pubSizeF;
@@ -528,6 +528,8 @@ public class MainActivity extends Activity {
         Section sAdv = new Section("目标 App 与钩子状态", false, null, () -> "包名 " + etPkg.getText().toString().trim());
         swAutoCheckRepair = new Switch(this);
         sAdv.body.addView(switchRow("运行时自动检查 / 修复", "开启后，回到前台时清理双击 / 图文触摸遗留的临时状态。尚未挂上的钩子的重试始终进行，不受这个开关影响。", swAutoCheckRepair));
+        swRepairStatus = new Switch(this);
+        sAdv.body.addView(switchRow("显示修复状态浮窗", "在抖音里显示一块小浮窗：自动检查开没开、上次检查的时刻和清理结果、手势收尾作废的次数、钩子挂上几个。按住可拖动位置。只显示状态，不改任何行为，和上面那个开关各管各的；默认关。", swRepairStatus));
         sAdv.body.addView(divider());
         sAdv.body.addView(sub("包名"));
         sAdv.body.addView(note("要作用的 App，多个包名用逗号分隔，默认是抖音。"));
@@ -892,6 +894,7 @@ public class MainActivity extends Activity {
         DanmakuConfig c = DanmakuConfig.fromText(sp.getString("cfg", ""));
         swEnabled.setChecked(c.enabled);
         swAutoCheckRepair.setChecked(c.autoCheckRepair);
+        swRepairStatus.setChecked(c.repairStatus);
         swDtap.setChecked(c.dtapToComment);
         swProfFav.setChecked(c.profFav);
         swLp.setChecked(c.lpBtn);
@@ -974,6 +977,7 @@ public class MainActivity extends Activity {
         DanmakuConfig c = new DanmakuConfig();
         c.enabled = swEnabled.isChecked();
         c.autoCheckRepair = swAutoCheckRepair.isChecked();
+        c.repairStatus = swRepairStatus.isChecked();
         c.mode = segIndex(segMode) == 1 ? 1 : 0;
         c.dtapToComment = swDtap.isChecked();
         c.profFav = swProfFav.isChecked();

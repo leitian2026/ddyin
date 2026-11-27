@@ -103,6 +103,34 @@ final class HookGuard {
         return true;
     }
 
+    /**
+     * 修复状态浮窗（RepairPanel）用：out[0] 已挂上、out[1] 还没结论、out[2] 未适配（类在但方法没匹配）、out[3] 类一直没找到（这次进程不再试）；返回总数。
+     * 只在刷新浮窗时调（回到前台 / 钩子状态变了），不在热路径。
+     */
+    static synchronized int counts(int[] out) {
+        out[0] = out[1] = out[2] = out[3] = 0;
+        for (int s : state) {
+            switch (s) {
+                case OK: out[0]++; break;
+                case GAVE_UP: out[2]++; break;
+                case MISSING: out[3]++; break;
+                default: out[1]++; break;
+            }
+        }
+        return state.length;
+    }
+
+    /** 没挂上的钩子 id（未适配 / 类没找到），逗号分隔，没有就是空串。只在刷新浮窗时调。 */
+    static synchronized String problemIds() {
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < state.length; i++) {
+            if (state[i] != GAVE_UP && state[i] != MISSING) continue;
+            if (b.length() > 0) b.append(", ");
+            b.append(IDS[i]);
+        }
+        return b.toString();
+    }
+
     static synchronized void ok(int id, String how) {
         if (state[id] == OK) return;
         state[id] = OK;
@@ -186,6 +214,10 @@ final class HookGuard {
     // ------------------------------------------------------------ 落盘（有变化才写）
 
     private static void flush() {
+        try {
+            RepairPanel.changed(); // 钩子状态变了：修复状态浮窗开着就刷新一次（关着一次静态读就返回）
+        } catch (Throwable ignored) {
+        }
         try {
             if (file == null || sig == null) return;
             Properties np = new Properties();

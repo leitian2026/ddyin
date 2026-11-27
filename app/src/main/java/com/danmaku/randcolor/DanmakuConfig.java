@@ -14,6 +14,10 @@ public final class DanmakuConfig {
     public boolean enabled = true;
     /** 回到前台时清理双击 / 图文触摸遗留的临时状态（不影响钩子重试）；默认关。 */
     public boolean autoCheckRepair = false;
+    /** 在抖音里显示「修复状态」浮窗（见 RepairPanel）：自动检查开没开、上次检查的时刻和结果、累计次数、钩子挂上了几个；默认关。和 autoCheckRepair 各管各的。 */
+    public boolean repairStatus = false;
+    /** 修复状态浮窗位置（左 / 上，dp）；-1 = 默认（靠左偏上）。在抖音里直接拖，只存在 dyin_pos.properties。 */
+    public int repairX = -1, repairY = -1;
     /** 0 = 鲜艳（高饱和高亮度）  1 = 任意（含浅色/粉彩） */
     public int mode = 0;
     /** 双击视频时，不点赞、不出红心，改为打开评论。 */
@@ -125,6 +129,7 @@ public final class DanmakuConfig {
             Properties p = new Properties();
             p.setProperty("enabled", String.valueOf(enabled));
             p.setProperty("autoCheckRepair", String.valueOf(autoCheckRepair));
+            p.setProperty("repairStatus", String.valueOf(repairStatus));
             p.setProperty("mode", String.valueOf(mode));
             p.setProperty("dtapToComment", String.valueOf(dtapToComment));
             p.setProperty("profFav", String.valueOf(profFav));
@@ -222,6 +227,8 @@ public final class DanmakuConfig {
             p.setProperty("timeY", String.valueOf(timeY));
             p.setProperty("volX", String.valueOf(volX));
             p.setProperty("volY", String.valueOf(volY));
+            p.setProperty("repairX", String.valueOf(repairX));
+            p.setProperty("repairY", String.valueOf(repairY));
             ByteArrayOutputStream bo = new ByteArrayOutputStream();
             p.store(bo, null);
             return new String(bo.toByteArray(), StandardCharsets.ISO_8859_1);
@@ -239,6 +246,8 @@ public final class DanmakuConfig {
         c.timeY = parsePos(p.getProperty("timeY", String.valueOf(c.timeY)));
         c.volX = parsePos(p.getProperty("volX", String.valueOf(c.volX)));
         c.volY = parsePos(p.getProperty("volY", String.valueOf(c.volY)));
+        c.repairX = parsePos(p.getProperty("repairX", String.valueOf(c.repairX)));
+        c.repairY = parsePos(p.getProperty("repairY", String.valueOf(c.repairY)));
     }
 
     static void applyPos(DanmakuConfig c, File f) {
@@ -286,6 +295,7 @@ public final class DanmakuConfig {
     private static void fill(DanmakuConfig c, Properties p) {
         c.enabled = Boolean.parseBoolean(p.getProperty("enabled", "true").trim());
         c.autoCheckRepair = Boolean.parseBoolean(p.getProperty("autoCheckRepair", "false").trim());
+        c.repairStatus = Boolean.parseBoolean(p.getProperty("repairStatus", "false").trim());
         c.dtapToComment = Boolean.parseBoolean(p.getProperty("dtapToComment", "false").trim());
         c.profFav = Boolean.parseBoolean(p.getProperty("profFav", "false").trim());
         c.lpBtn = Boolean.parseBoolean(p.getProperty("lpBtn", "false").trim());

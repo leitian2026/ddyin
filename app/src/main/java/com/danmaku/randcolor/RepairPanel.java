@@ -1,6 +1,8 @@
 package com.danmaku.randcolor;
 
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
@@ -11,7 +13,9 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.lang.ref.WeakReference;
 import java.util.TimeZone;
@@ -22,7 +26,8 @@ import java.util.WeakHashMap;
  * 让人看得到「自动修复」到底有没有在工作。显示：
  *  - 自动检查（autoCheckRepair）开没开；开着时上次检查的时刻、这次清掉了几个「进行中」的状态（名字见 NAMES）、累计检查次数和清理个数；
  *  - 手势收尾：双击改评论（图文帖）吞手势没有收尾、被后来的事件当场作废的累计次数（CommentHook.gestureExpired，和自动检查开不开无关）；
- *  - 钩子：已挂上几个 / 共几个，还没结论的（类还没找到；功能开关没开的钩子不会去挂，也停在这里，不是故障）、未适配的、类没找到的个数，以及没挂上的钩子 id（HookGuard 的状态）。
+ *  - 钩子：已挂上几个 / 共几个，还没结论的（类还没找到；功能开关没开的钩子不会去挂，也停在这里，不是故障）、未适配的、类没找到的个数，以及没结论 / 没挂上的钩子 id（HookGuard 的状态）。
+ * 浮窗底部有一个「复制」按钮（1.45.20）：把浮窗现在显示的全部文字放进剪贴板，方便发出来看。
  * 它只显示模块自己已经有的状态，不判断「已挂钩但行为异常」（做不到，见 README「运行时自动检查 / 修复」）：钩子显示已挂上不等于功能一定正常。
  *
  * 不是钩子：不挂任何方法。回到前台时（DanmakuHook.hookResume 里已经挂着的 Activity.onResume）确保这个窗口里有浮窗并刷新一次；
@@ -140,6 +145,8 @@ final class RepairPanel {
         if (COUNTS[3] > 0) b.append(" · 没找到 ").append(COUNTS[3]);
         String bad = HookGuard.problemIds();
         if (!bad.isEmpty()) b.append("\n未挂上：").append(bad);
+        String wait = HookGuard.pendingIds();
+        if (!wait.isEmpty()) b.append("\n没结论：").append(wait);
         return b.toString();
     }
 
@@ -162,7 +169,8 @@ final class RepairPanel {
         return Math.round(v * c.getResources().getDisplayMetrics().density);
     }
 
-    private static final class Panel extends TextView {
+    private static final class Panel extends LinearLayout {
+        private final TextView tv;
         private String shown = "";
         private float downRawX, downRawY;
         private int startL, startT;
@@ -170,21 +178,51 @@ final class RepairPanel {
         Panel(Context ctx) {
             super(ctx);
             setTag(TAG);
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-            setTextColor(0xFFFFFFFF);
+            setOrientation(VERTICAL);
             setPadding(dp(ctx, 6), dp(ctx, 4), dp(ctx, 6), dp(ctx, 4));
-            setMaxWidth(dp(ctx, 300));
             GradientDrawable g = new GradientDrawable();
             g.setColor(0xCC000000);
             g.setCornerRadius(dp(ctx, 6));
             setBackground(g);
             setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+            tv = new TextView(ctx);
+            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            tv.setTextColor(0xFFFFFFFF);
+            tv.setMaxWidth(dp(ctx, 300));
+            addView(tv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            // 复制按钮：把浮窗现在显示的全部文字放进剪贴板；按钮自己吃掉点击，文字区域的触摸仍然交给下面的拖动
+            TextView btn = new TextView(ctx);
+            btn.setText("复制");
+            btn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            btn.setTextColor(0xFFFFFFFF);
+            btn.setPadding(dp(ctx, 12), dp(ctx, 6), dp(ctx, 12), dp(ctx, 6));
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(0x55FFFFFF);
+            bg.setCornerRadius(dp(ctx, 6));
+            btn.setBackground(bg);
+            btn.setOnClickListener(v -> copy());
+            LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            bl.gravity = Gravity.END;
+            bl.topMargin = dp(ctx, 4);
+            addView(btn, bl);
+        }
+
+        /** 点「复制」：把当前显示的文字放进剪贴板，用系统 Toast 提示一次。只在点击时做，没有定时器。 */
+        private void copy() {
+            try {
+                Context c = getContext();
+                ClipboardManager cm = (ClipboardManager) c.getSystemService(Context.CLIPBOARD_SERVICE);
+                if (cm == null) return;
+                cm.setPrimaryClip(ClipData.newPlainText("dyin-repair", shown));
+                Toast.makeText(c, "已复制", Toast.LENGTH_SHORT).show();
+            } catch (Throwable ignored) {
+            }
         }
 
         void show(String t) {
             if (t.equals(shown)) return; // 文字没变不 setText，不触发重新布局
             shown = t;
-            setText(t);
+            tv.setText(t);
         }
 
         /** 按配置摆位置（dp，默认靠左偏上）；没变就不 setLayoutParams（它会让整个窗口根重新布局）。 */

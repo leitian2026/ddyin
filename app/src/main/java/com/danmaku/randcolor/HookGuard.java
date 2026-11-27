@@ -131,6 +131,17 @@ final class HookGuard {
         return b.toString();
     }
 
+    /** 还没结论的钩子 id（类还没找到 / 功能开关没开所以没去挂），逗号分隔，没有就是空串。只在刷新浮窗时调。 */
+    static synchronized String pendingIds() {
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < state.length; i++) {
+            if (state[i] != NEW) continue;
+            if (b.length() > 0) b.append(", ");
+            b.append(IDS[i]);
+        }
+        return b.toString();
+    }
+
     static synchronized void ok(int id, String how) {
         if (state[id] == OK) return;
         state[id] = OK;

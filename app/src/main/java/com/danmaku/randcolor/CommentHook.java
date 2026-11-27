@@ -32,7 +32,10 @@ import de.robv.android.xposed.XC_MethodHook;
  *      - 图文帖双击两下，LongPressLayout#dispatchTouchEvent 都收到完整的按下和抬起；MonitorScrollFrameLayout#onInterceptTouchEvent 只收到两次按下（返回 false），没有抬起；onDoubleTap 0 次；
  *      - 红心：第二下按下之后 DiggLayout 里加红心 ImageView，时间上在 LongPressLayout#onTouchEvent 返回之前 1ms（49976 / 49977）。
  *     没有证据的部分：吞掉第二下之后点赞和红心确实不发生（时间对得上，但没有栈证明点赞是 LongPressLayout 里触发的）；LongPressLayout 是这一页 MonitorScrollFrameLayout 的后代（按 40.9.0 的视图树，
- *     41.4.0 的图文页没有抓过视图树）；两份记录里的图文帖都是从搜索进入的详情页（UltraDetailActivity），首页信息流里的图文没有追踪过；第一下点击已经把视频暂停（LongPressLayout 在抬起时就点了），这一步拦不住；没编译、没上机。
+ *     41.4.0 的图文页没有抓过视图树）；两份记录里的图文帖都是从搜索进入的详情页（UltraDetailActivity），首页信息流里的图文没有追踪过；没编译、没上机。
+ *     1.45.17：不改的时候图文双击会让 LongPressLayout 被点两次（41.3.0 的 View#performClick ×2、41.4.0 的 TYPE_VIEW_CLICKED ×2，都在抬起时），第一下点成暂停、第二下点回播放；
+ *     1.45.16 吞掉第二下之后只剩第一下，视频停在暂停上。所以认到双击、吞掉第二下的同时，对这个 LongPressLayout 自己补点一次 performClick（同步调用，不分配）。
+ *     没有证据的：补这一次是否真等于原来第二下的效果（只有「两次点击」的记录，没看到点击之后真正切换播放的那个方法）。
  * 1.26.4 起不再有混淆名的双击兜底（BaseListFragmentPanel#LLLIILIL）：它在前面这条路径失效时照样能打开评论，
  * 会把「前面的钩子到底有没有用」盖住，设置页里钩子状态再好看也不知道是不是真的在起作用。
  * 现在这条路径失效 = 双击恢复成点赞，一眼就能看出来。（LLLIILIL 的追踪证据：40.7.0 里一次双击 X.06y9.onTouch 只调它一次，红心和点赞都从它往下走。）
@@ -289,7 +292,7 @@ final class CommentHook {
     /**
      * 图文页里 LongPressLayout#dispatchTouchEvent：标记没置上（普通视频、直播等）一次静态读就返回。
      * 标记置上时按「第一下抬起 → 第二下按下」认双击；认到、并且这一页找得到评论按钮，就打开评论，把第二下的整个手势吞掉（返回 true，原方法不执行）。
-     * 找不到评论按钮：放行，双击照常点赞。每次触摸只做几次比较；找页面和评论按钮只在认到双击时做一次。
+     * 找不到评论按钮：放行，双击照常点赞。每次触摸只做几次比较；找页面和评论按钮、补点一次，只在认到双击时做一次。
      */
     private static final class PhotoDtapHook extends XC_MethodHook {
         @Override
@@ -327,6 +330,7 @@ final class CommentHook {
                                 }
                                 phSwallow = true;
                                 p.setResult(Boolean.TRUE);
+                                v.performClick(); // 补回被吞掉的第二下本来会点的那一次：第一下已经点成暂停，第二下点回播放（见类注释）
                                 return;
                             }
                         }

@@ -26,6 +26,8 @@
 
 这是一个 LSPosed 模块，钩抖音里的方法。抖音更新后混淆名会变，所以**所有钩子都必须有自检**。
 
+**另外，开发流程、证据规范、文档与交付规范见 [`SPEC.md`](SPEC.md)，每次改动前也必须读完并照做。**（本文件和 `HOOKS.md` 管钩子怎么写，`SPEC.md` 管怎么证明、怎么写注释和文档、怎么提交。）
+
 **新增钩子 / 新功能前，必须先读 [`HOOKS.md`](HOOKS.md)，并严格照它的「6 步」和「硬性规则」做。** 最低要求：
 
 1. 钩抖音自己的类，一律走 `HookGuard`（`hook`，或 `find` + `ok` / `miss` / `waitFail`）；不要自己写 `Class.forName` + `hookMethod` + `xxxHooked` 变量。

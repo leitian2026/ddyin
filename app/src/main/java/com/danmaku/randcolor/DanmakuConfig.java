@@ -12,6 +12,8 @@ import java.util.Properties;
 /** 配置：模块界面写出，目标 App 里的 Hook 读取。两边共用同一个类。默认值 = 开启 + 鲜艳随机 + 按弹幕对象固定颜色。 */
 public final class DanmakuConfig {
     public boolean enabled = true;
+    /** Runtime checks: retry hooks still pending only; default disabled. */
+    public boolean autoCheckRepair = false;
     /** 0 = 鲜艳（高饱和高亮度）  1 = 任意（含浅色/粉彩） */
     public int mode = 0;
     /** 双击视频时，不点赞、不出红心，改为打开评论。 */
@@ -122,6 +124,7 @@ public final class DanmakuConfig {
         try {
             Properties p = new Properties();
             p.setProperty("enabled", String.valueOf(enabled));
+            p.setProperty("autoCheckRepair", String.valueOf(autoCheckRepair));
             p.setProperty("mode", String.valueOf(mode));
             p.setProperty("dtapToComment", String.valueOf(dtapToComment));
             p.setProperty("profFav", String.valueOf(profFav));
@@ -282,6 +285,7 @@ public final class DanmakuConfig {
 
     private static void fill(DanmakuConfig c, Properties p) {
         c.enabled = Boolean.parseBoolean(p.getProperty("enabled", "true").trim());
+        c.autoCheckRepair = Boolean.parseBoolean(p.getProperty("autoCheckRepair", "false").trim());
         c.dtapToComment = Boolean.parseBoolean(p.getProperty("dtapToComment", "false").trim());
         c.profFav = Boolean.parseBoolean(p.getProperty("profFav", "false").trim());
         c.lpBtn = Boolean.parseBoolean(p.getProperty("lpBtn", "false").trim());

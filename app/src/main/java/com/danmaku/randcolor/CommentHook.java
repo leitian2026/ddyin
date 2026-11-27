@@ -324,13 +324,13 @@ final class CommentHook {
                                 View target = commentTarget(pageOf(v));
                                 if (target == null) return; // 找不到评论按钮：放行，双击照常点赞
                                 long now = SystemClock.uptimeMillis();
+                                dtapAt = now; // 图文双击同样跳过延迟的单击暂停处理
                                 if (now - lastOpenAt >= REOPEN_GAP_MS) {
                                     lastOpenAt = now;
                                     open(target);
                                 }
                                 phSwallow = true;
-                                p.setResult(Boolean.TRUE);
-                                v.performClick(); // 补回被吞掉的第二下本来会点的那一次：第一下已经点成暂停，第二下点回播放（见类注释）
+                                p.setResult(Boolean.TRUE); // 补回被吞掉的第二下本来会点的那一次：第一下已经点成暂停，第二下点回播放（见类注释）
                                 return;
                             }
                         }
